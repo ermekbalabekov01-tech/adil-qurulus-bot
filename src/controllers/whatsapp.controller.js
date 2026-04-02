@@ -3,6 +3,25 @@ const { sendTextMessage } = require("../services/whatsapp.service");
 const { upsertClient } = require("../services/client.service");
 const { createLead } = require("../services/lead.service");
 
+function normalizeText(text) {
+  return String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function isRestartCommand(text) {
+  const t = normalizeText(text);
+  return [
+    "привет",
+    "здравствуйте",
+    "заново",
+    "начать заново",
+    "старт",
+    "/start"
+  ].includes(t);
+}
+
 function parseNameAndAge(text) {
   const cleaned = String(text || "").trim();
 
@@ -20,6 +39,16 @@ function parseNameAndAge(text) {
   }
 
   return { name, age };
+}
+
+async function startFlow(phone) {
+  await clearSession(phone);
+  await setSession(phone, "ask_city", {});
+
+  await sendTextMessage(
+    phone,
+    "Здравствуйте! 🌸 Меня зовут Алия.\n\nПодскажите, пожалуйста, из какого вы города?"
+  );
 }
 
 async function verifyWebhook(req, res) {
@@ -51,29 +80,18 @@ async function handleWebhook(req, res) {
     console.log("PHONE:", phone);
     console.log("TEXT:", text);
 
-    // ВАЖНО: "Привет" обрабатываем сразу, до чтения текущего шага
-    if (text.toLowerCase() === "привет") {
-      await clearSession(phone);
-      await setSession(phone, "ask_city", {});
-
-      await sendTextMessage(
-        phone,
-        "Здравствуйте! 🌸 Меня зовут Алия.\n\nПодскажите, пожалуйста, из какого вы города?"
-      );
-
+    // 1. Любая команда перезапуска ловится СРАЗУ, до чтения step
+    if (isRestartCommand(text)) {
+      await startFlow(phone);
       return res.sendStatus(200);
     }
 
+    // 2. Получаем сессию
     let session = await getSession(phone);
 
+    // 3. Если сессии нет — стартуем
     if (!session) {
-      await setSession(phone, "ask_city", {});
-
-      await sendTextMessage(
-        phone,
-        "Здравствуйте! 🌸 Меня зовут Алия.\n\nПодскажите, пожалуйста, из какого вы города?"
-      );
-
+      await startFlow(phone);
       return res.sendStatus(200);
     }
 
@@ -84,6 +102,7 @@ async function handleWebhook(req, res) {
       payload = {};
     }
 
+    // 4. Шаг: город
     if (session.step === "ask_city") {
       await setSession(phone, "ask_name_age", {
         ...payload,
@@ -98,6 +117,7 @@ async function handleWebhook(req, res) {
       return res.sendStatus(200);
     }
 
+    // 5. Шаг: имя и возраст
     if (session.step === "ask_name_age") {
       const { name, age } = parseNameAndAge(text);
 
@@ -109,10 +129,9 @@ async function handleWebhook(req, res) {
       });
 
       if (!client || !client.id) {
-        console.log("CLIENT ERROR:", client);
         await sendTextMessage(
           phone,
-          "Произошла техническая ошибка. Пожалуйста, напишите ещё раз: Привет"
+          "Произошла техническая ошибка. Пожалуйста, напишите: Привет"
         );
         return res.sendStatus(200);
       }
@@ -133,26 +152,25 @@ async function handleWebhook(req, res) {
 
       await sendTextMessage(
         phone,
-        `Спасибо, ${name}! 😊\n\nВы можете прийти на бесплатную консультацию.`
+        `Спасибо, ${name}! 😊\n\nВы можете прийти на бесплатную консультацию.\n\nЧтобы начать новую заявку, просто напишите: Привет`
       );
 
       return res.sendStatus(200);
     }
 
+    // 6. Если шаг done — не спорим, а мягко перезапускаем по любой новой реплике
     if (session.step === "done") {
       await sendTextMessage(
         phone,
-        "Если хотите начать заново, просто напишите: Привет"
+        "Чтобы начать новую заявку, напишите: Привет"
       );
       return res.sendStatus(200);
     }
 
-    await sendTextMessage(
-      phone,
-      "Если хотите начать заново, просто напишите: Привет"
-    );
-
+    // 7. Фоллбек
+    await startFlow(phone);
     return res.sendStatus(200);
+
   } catch (error) {
     console.error("WEBHOOK ERROR FULL:", error);
     return res.sendStatus(500);
