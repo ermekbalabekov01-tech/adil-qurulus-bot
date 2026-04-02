@@ -1,5 +1,26 @@
-const { getSession, setSession } = require("../services/session.service");
+const { getSession, setSession, clearSession } = require("../services/session.service");
 const { sendTextMessage } = require("../services/whatsapp.service");
+const { upsertClient } = require("../services/client.service");
+const { createLead } = require("../services/lead.service");
+
+function parseNameAndAge(text) {
+  const cleaned = String(text || "").trim();
+
+  const ageMatch = cleaned.match(/(\d{1,2})/);
+  const age = ageMatch ? Number(ageMatch[1]) : null;
+
+  let name = cleaned
+    .replace(/\d{1,2}\s*(лет|год|года)?/gi, "")
+    .replace(/[.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!name) {
+    name = cleaned;
+  }
+
+  return { name, age };
+}
 
 async function verifyWebhook(req, res) {
   const mode = req.query["hub.mode"];
@@ -65,14 +86,46 @@ async function handleWebhook(req, res) {
     }
 
     if (session.step === "ask_name_age") {
+      const { name, age } = parseNameAndAge(text);
+
+      const city = payload.city || null;
+
+      const client = await upsertClient({
+        phone,
+        name,
+        age,
+        city,
+      });
+
+      await createLead({
+        clientId: client.id,
+        serviceKey: "consultation",
+        serviceTitle: "Первичная консультация",
+        branch: "astana",
+        status: "new",
+      });
+
       await setSession(phone, "done", {
         ...payload,
-        name_age: text,
+        name,
+        age,
       });
 
       await sendTextMessage(
         phone,
-        "Спасибо! 😊\n\nВы можете прийти на бесплатную консультацию."
+        `Спасибо, ${name}! 😊\n\nВы можете прийти на бесплатную консультацию.`
+      );
+
+      return res.sendStatus(200);
+    }
+
+    if (text.toLowerCase() === "привет") {
+      await clearSession(phone);
+      await setSession(phone, "ask_city", {});
+
+      await sendTextMessage(
+        phone,
+        "Здравствуйте! 🌸 Меня зовут Алия.\n\nПодскажите, пожалуйста, из какого вы города?"
       );
 
       return res.sendStatus(200);
