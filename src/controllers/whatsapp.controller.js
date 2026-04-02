@@ -51,6 +51,19 @@ async function handleWebhook(req, res) {
     console.log("PHONE:", phone);
     console.log("TEXT:", text);
 
+    // ВАЖНО: "Привет" обрабатываем сразу, до чтения текущего шага
+    if (text.toLowerCase() === "привет") {
+      await clearSession(phone);
+      await setSession(phone, "ask_city", {});
+
+      await sendTextMessage(
+        phone,
+        "Здравствуйте! 🌸 Меня зовут Алия.\n\nПодскажите, пожалуйста, из какого вы города?"
+      );
+
+      return res.sendStatus(200);
+    }
+
     let session = await getSession(phone);
 
     if (!session) {
@@ -88,14 +101,21 @@ async function handleWebhook(req, res) {
     if (session.step === "ask_name_age") {
       const { name, age } = parseNameAndAge(text);
 
-      const city = payload.city || null;
-
       const client = await upsertClient({
         phone,
         name,
         age,
-        city,
+        city: payload.city || null,
       });
+
+      if (!client || !client.id) {
+        console.log("CLIENT ERROR:", client);
+        await sendTextMessage(
+          phone,
+          "Произошла техническая ошибка. Пожалуйста, напишите ещё раз: Привет"
+        );
+        return res.sendStatus(200);
+      }
 
       await createLead({
         clientId: client.id,
@@ -119,26 +139,22 @@ async function handleWebhook(req, res) {
       return res.sendStatus(200);
     }
 
-    if (text.toLowerCase() === "привет") {
-      await clearSession(phone);
-      await setSession(phone, "ask_city", {});
-
+    if (session.step === "done") {
       await sendTextMessage(
         phone,
-        "Здравствуйте! 🌸 Меня зовут Алия.\n\nПодскажите, пожалуйста, из какого вы города?"
+        "Если хотите начать заново, просто напишите: Привет"
       );
-
       return res.sendStatus(200);
     }
 
     await sendTextMessage(
       phone,
-      "Если хотите начать заново, напишите: Привет"
+      "Если хотите начать заново, просто напишите: Привет"
     );
 
     return res.sendStatus(200);
   } catch (error) {
-    console.error("WEBHOOK ERROR:", error.response?.data || error.message);
+    console.error("WEBHOOK ERROR FULL:", error);
     return res.sendStatus(500);
   }
 }

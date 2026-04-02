@@ -2,8 +2,8 @@ const pool = require("../db");
 
 async function createLead({
   clientId,
-  serviceKey = null,
-  serviceTitle = null,
+  serviceKey = "consultation",
+  serviceTitle = "Первичная консультация",
   branch = "astana",
   status = "new",
 }) {
@@ -14,9 +14,11 @@ async function createLead({
       service_key,
       service_title,
       branch,
-      status
+      status,
+      created_at,
+      updated_at
     )
-    VALUES ($1, $2, $3, $4, $5)
+    VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
     RETURNING *
     `,
     [clientId, serviceKey, serviceTitle, branch, status]

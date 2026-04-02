@@ -7,8 +7,6 @@ async function upsertClient({ phone, name = null, age = null, city = null }) {
   );
 
   if (existing.rows.length > 0) {
-    const client = existing.rows[0];
-
     const updated = await pool.query(
       `
       UPDATE clients
@@ -28,8 +26,8 @@ async function upsertClient({ phone, name = null, age = null, city = null }) {
 
   const inserted = await pool.query(
     `
-    INSERT INTO clients (phone, name, age, city)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO clients (phone, name, age, city, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, NOW(), NOW())
     RETURNING *
     `,
     [phone, name, age, city]

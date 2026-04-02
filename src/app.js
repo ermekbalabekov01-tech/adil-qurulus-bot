@@ -22,7 +22,7 @@ app.get("/db-test", async (req, res) => {
       time: result.rows[0],
     });
   } catch (err) {
-    console.error(err);
+    console.error("DB TEST ERROR:", err);
     res.status(500).json({
       ok: false,
       error: err.message,

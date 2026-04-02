@@ -12,7 +12,7 @@ async function initDb() {
     console.log("✅ Tables created successfully");
     process.exit(0);
   } catch (err) {
-    console.error("❌ DB init error:", err.message);
+    console.error("❌ DB init error:", err);
     process.exit(1);
   }
 }
