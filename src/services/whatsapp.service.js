@@ -1,57 +1,73 @@
-CREATE TABLE IF NOT EXISTS clients (
-  id SERIAL PRIMARY KEY,
-  phone VARCHAR(30) UNIQUE NOT NULL,
-  name VARCHAR(100),
-  age INTEGER,
-  city VARCHAR(100),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+const axios = require("axios");
 
-CREATE TABLE IF NOT EXISTS sessions (
-  id SERIAL PRIMARY KEY,
-  phone VARCHAR(30) UNIQUE NOT NULL,
-  step VARCHAR(50) NOT NULL,
-  payload_json TEXT,
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+const API_BASE = "https://graph.facebook.com/v23.0";
 
-CREATE TABLE IF NOT EXISTS leads (
-  id SERIAL PRIMARY KEY,
-  client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
-  service_key VARCHAR(50),
-  service_title VARCHAR(255),
-  city VARCHAR(100),
-  photo_needed BOOLEAN DEFAULT FALSE,
-  photo_received BOOLEAN DEFAULT FALSE,
-  photo_media_id TEXT,
-  preferred_date DATE,
-  preferred_time VARCHAR(10),
-  status VARCHAR(50) DEFAULT 'new',
-  source VARCHAR(50) DEFAULT 'whatsapp',
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+async function sendRequest(payload) {
+  const url = `${API_BASE}/${process.env.PHONE_NUMBER_ID}/messages`;
 
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS name VARCHAR(100);
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS age INTEGER;
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS city VARCHAR(100);
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+  const { data } = await axios.post(url, payload, {
+    headers: {
+      Authorization: `Bearer ${process.env.ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    timeout: 30000,
+  });
 
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS step VARCHAR(50);
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS payload_json TEXT;
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+  return data;
+}
 
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS client_id INTEGER;
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS service_key VARCHAR(50);
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS service_title VARCHAR(255);
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS city VARCHAR(100);
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS photo_needed BOOLEAN DEFAULT FALSE;
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS photo_received BOOLEAN DEFAULT FALSE;
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS photo_media_id TEXT;
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS preferred_date DATE;
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS preferred_time VARCHAR(10);
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'new';
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'whatsapp';
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
-ALTER TABLE leads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+async function sendTextMessage(to, body) {
+  return sendRequest({
+    messaging_product: "whatsapp",
+    to,
+    type: "text",
+    text: { body },
+  });
+}
+
+async function sendReplyButtons(to, body, buttons, headerText = null, footerText = null) {
+  return sendRequest({
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      ...(headerText ? { header: { type: "text", text: headerText } } : {}),
+      body: { text: body },
+      ...(footerText ? { footer: { text: footerText } } : {}),
+      action: {
+        buttons: buttons.map((btn) => ({
+          type: "reply",
+          reply: {
+            id: btn.id,
+            title: btn.title,
+          },
+        })),
+      },
+    },
+  });
+}
+
+async function sendListMessage(to, body, buttonText, sections, headerText = null, footerText = null) {
+  return sendRequest({
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "list",
+      ...(headerText ? { header: { type: "text", text: headerText } } : {}),
+      body: { text: body },
+      ...(footerText ? { footer: { text: footerText } } : {}),
+      action: {
+        button: buttonText,
+        sections,
+      },
+    },
+  });
+}
+
+module.exports = {
+  sendTextMessage,
+  sendReplyButtons,
+  sendListMessage,
+};
