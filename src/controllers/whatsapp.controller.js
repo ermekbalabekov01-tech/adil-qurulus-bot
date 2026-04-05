@@ -15,6 +15,12 @@ const SERVICES = [
     needPhoto: true,
   },
   {
+    id: "service_beard",
+    key: "beard",
+    title: "Пересадка бороды",
+    needPhoto: true,
+  },
+  {
     id: "service_brows",
     key: "brows",
     title: "Пересадка бровей",
@@ -27,24 +33,24 @@ const SERVICES = [
     needPhoto: true,
   },
   {
-    id: "service_beard",
-    key: "beard",
-    title: "Пересадка бороды",
-    needPhoto: true,
+    id: "service_consult",
+    key: "consult",
+    title: "Бесплатная консультация",
+    needPhoto: false,
   },
 ];
 
 const DEFAULT_SLOTS = [
   "10:00",
-  "10:30",
   "11:00",
-  "11:30",
   "12:00",
-  "12:30",
+  "13:00",
   "14:00",
-  "14:30",
   "15:00",
-  "15:30",
+  "16:00",
+  "17:00",
+  "18:00",
+  "19:00",
 ];
 
 function normalizeText(text) {
@@ -56,7 +62,14 @@ function normalizeText(text) {
 
 function isRestartCommand(text) {
   const t = normalizeText(text);
-  return ["привет", "здравствуйте", "заново", "начать заново", "/start", "старт"].includes(t);
+  return [
+    "привет",
+    "здравствуйте",
+    "заново",
+    "начать заново",
+    "/start",
+    "старт",
+  ].includes(t);
 }
 
 function parseNameAndAge(text) {
@@ -122,7 +135,11 @@ function getIncomingValue(message) {
     };
   }
 
-  return { type: message.type || "unknown", text: "", id: "" };
+  return {
+    type: message.type || "unknown",
+    text: "",
+    id: "",
+  };
 }
 
 function getDateOptions(days = 7) {
@@ -152,11 +169,11 @@ function getDateOptions(days = 7) {
 function buildServicesSection() {
   return [
     {
-      title: "Выберите услугу",
+      title: "Услуги клиники",
       rows: SERVICES.map((s) => ({
         id: s.id,
         title: s.title.slice(0, 24),
-        description: "Открыть запись",
+        description: "Выбрать",
       })),
     },
   ];
@@ -165,7 +182,7 @@ function buildServicesSection() {
 function buildDatesSection() {
   return [
     {
-      title: "Свободные даты",
+      title: "Доступные даты",
       rows: getDateOptions(7).map((d) => ({
         id: d.id,
         title: d.title.slice(0, 24),
@@ -211,36 +228,38 @@ async function startFlow(phone) {
 async function askService(phone) {
   await sendListMessage(
     phone,
-    "Подскажите, пожалуйста, какая процедура Вас интересует?",
+    "Подскажите, пожалуйста, что Вас интересует?",
     "Выбрать услугу",
     buildServicesSection(),
     null,
-    "Выберите один вариант"
+    "Я помогу подобрать удобный вариант"
   );
 }
 
 async function askPhotoChoice(phone, serviceTitle) {
   await sendReplyButtons(
     phone,
-    `Чтобы я могла точнее сориентировать Вас по процедуре "${serviceTitle}", можете отправить фото зоны без лица.\n\nЕсли сейчас неудобно — можно продолжить без фото.`,
+    `Поняла Вас 😊\n\nПо услуге «${serviceTitle}» я могу помочь дальше.\n\nЧтобы точнее сориентировать Вас, можно отправить фото зоны без лица.\nЕсли сейчас неудобно — продолжим без фото и запишем Вас на консультацию.`,
     [
       { id: "photo_yes", title: "Отправить фото" },
       { id: "photo_no", title: "Без фото" },
-    ]
+    ],
+    null,
+    "Фото не обязательно"
   );
 }
 
 async function askNameAge(phone) {
   await sendTextMessage(
     phone,
-    "Благодарю 🌿\n\nПодскажите, пожалуйста, как я могу к Вам обращаться и Ваш возраст?\n\nНапример: Ермек 36 лет"
+    "Подскажите, пожалуйста, как я могу к Вам обращаться и Ваш возраст?\n\nНапример: Ермек 36 лет"
   );
 }
 
 async function askDate(phone) {
   await sendListMessage(
     phone,
-    "Выберите, пожалуйста, удобный день для консультации.",
+    "Вы можете прийти на бесплатную консультацию, где специалист подробно всё посмотрит и подберёт подходящее решение.\n\nВыберите, пожалуйста, удобный день.",
     "Выбрать дату",
     buildDatesSection(),
     null,
@@ -255,7 +274,7 @@ async function askTime(phone, chosenDateLabel) {
     "Выбрать время",
     buildTimesSection(),
     null,
-    "Если слот занят, предложу выбрать другой"
+    "Если слот занят, предложу другой"
   );
 }
 
@@ -287,7 +306,7 @@ async function handleWebhook(req, res) {
     if (incoming.type === "audio") {
       await sendTextMessage(
         phone,
-        "Спасибо за голосовое 😊\n\nЧтобы я могла быстрее помочь и корректно оформить запись, напишите, пожалуйста, текстом."
+        "Спасибо за голосовое 😊\n\nЧтобы я могла быстрее помочь и корректно оформить запись, напишите, пожалуйста, сообщением."
       );
       return res.sendStatus(200);
     }
@@ -324,7 +343,10 @@ async function handleWebhook(req, res) {
       } else if (incoming.type === "text") {
         payload.city = incoming.text;
       } else {
-        await sendTextMessage(phone, "Пожалуйста, выберите город кнопкой или напишите его сообщением.");
+        await sendTextMessage(
+          phone,
+          "Пожалуйста, выберите город кнопкой или напишите его сообщением."
+        );
         return res.sendStatus(200);
       }
 
@@ -335,7 +357,10 @@ async function handleWebhook(req, res) {
 
     if (session.step === "ask_city_manual") {
       if (incoming.type !== "text") {
-        await sendTextMessage(phone, "Пожалуйста, напишите название города текстом.");
+        await sendTextMessage(
+          phone,
+          "Пожалуйста, напишите название города текстом."
+        );
         return res.sendStatus(200);
       }
 
@@ -358,8 +383,14 @@ async function handleWebhook(req, res) {
       payload.serviceTitle = service.title;
       payload.photoNeeded = service.needPhoto;
 
-      await setSession(phone, "ask_photo_choice", payload);
-      await askPhotoChoice(phone, service.title);
+      if (service.needPhoto) {
+        await setSession(phone, "ask_photo_choice", payload);
+        await askPhotoChoice(phone, service.title);
+        return res.sendStatus(200);
+      }
+
+      await setSession(phone, "ask_name_age", payload);
+      await askNameAge(phone);
       return res.sendStatus(200);
     }
 
@@ -382,7 +413,10 @@ async function handleWebhook(req, res) {
         return res.sendStatus(200);
       }
 
-      await sendTextMessage(phone, "Пожалуйста, выберите один из вариантов: отправить фото или без фото.");
+      await sendTextMessage(
+        phone,
+        "Пожалуйста, выберите один из вариантов: отправить фото или без фото."
+      );
       return res.sendStatus(200);
     }
 
@@ -406,7 +440,10 @@ async function handleWebhook(req, res) {
 
     if (session.step === "ask_name_age") {
       if (incoming.type !== "text") {
-        await sendTextMessage(phone, "Пожалуйста, напишите имя и возраст сообщением.\nНапример: Ермек 36 лет");
+        await sendTextMessage(
+          phone,
+          "Пожалуйста, напишите имя и возраст сообщением.\nНапример: Ермек 36 лет"
+        );
         return res.sendStatus(200);
       }
 
@@ -429,7 +466,7 @@ async function handleWebhook(req, res) {
     }
 
     if (session.step === "ask_date") {
-      if (!incoming.id.startsWith("date_")) {
+      if (!incoming.id || !incoming.id.startsWith("date_")) {
         await sendTextMessage(phone, "Пожалуйста, выберите дату из списка.");
         await askDate(phone);
         return res.sendStatus(200);
@@ -445,7 +482,7 @@ async function handleWebhook(req, res) {
     }
 
     if (session.step === "ask_time") {
-      if (!incoming.id.startsWith("time_")) {
+      if (!incoming.id || !incoming.id.startsWith("time_")) {
         await sendTextMessage(phone, "Пожалуйста, выберите время из списка.");
         await askTime(phone, payload.preferredDateLabel || payload.preferredDate);
         return res.sendStatus(200);
@@ -496,7 +533,10 @@ async function handleWebhook(req, res) {
     await startFlow(phone);
     return res.sendStatus(200);
   } catch (error) {
-    console.error("WEBHOOK ERROR FULL:", error.response?.data || error.message || error);
+    console.error(
+      "WEBHOOK ERROR FULL:",
+      error.response?.data || error.message || error
+    );
     return res.sendStatus(500);
   }
 }
