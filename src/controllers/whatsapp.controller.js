@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { routeMessage } = require('../router');
+const { sendTelegramMessage } = require('../services/telegram.service');
 
 const sessions = new Map();
 
@@ -17,6 +18,7 @@ function getSession(phone) {
       data: {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      leadSent: false
     });
   }
 
@@ -32,9 +34,9 @@ function updateSession(phone, updates = {}) {
     ...updates,
     data: {
       ...(current.data || {}),
-      ...(updates.data || {}),
+      ...(updates.data || {})
     },
-    updatedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
 
   sessions.set(key, next);
@@ -45,13 +47,13 @@ function getProjectConfig(project = 'construction') {
   if (project === 'clinic') {
     return {
       token: process.env.CLINIC_ACCESS_TOKEN,
-      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID,
+      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID
     };
   }
 
   return {
     token: process.env.CONSTRUCTION_ACCESS_TOKEN,
-    phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID,
+    phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID
   };
 }
 
@@ -67,13 +69,13 @@ async function markMessageAsRead(messageId, project = 'construction') {
     {
       messaging_product: 'whatsapp',
       status: 'read',
-      message_id: messageId,
+      message_id: messageId
     },
     {
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+        'Content-Type': 'application/json'
+      }
     }
   );
 }
@@ -93,13 +95,13 @@ async function sendWhatsAppMessage(to, body, project = 'construction') {
       messaging_product: 'whatsapp',
       to: normalizePhone(to),
       type: 'text',
-      text: { body },
+      text: { body }
     },
     {
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+        'Content-Type': 'application/json'
+      }
     }
   );
 }
@@ -129,6 +131,44 @@ function getTypingDelay(reply = '') {
   if (length <= 160) return 1600;
   if (length <= 300) return 2400;
   return 3200;
+}
+
+function formatLeadMessage(project, data = {}, from = '') {
+  const title =
+    project === 'clinic'
+      ? '🏥 Новая заявка — Клиника'
+      : '🏗 Новая заявка — Adil Qurulus';
+
+  const lines = [title, ''];
+
+  if (from) lines.push(`WhatsApp: ${from}`);
+
+  const fields = [
+    ['direction', 'Направление'],
+    ['houseStage', 'Этап'],
+    ['location', 'Локация'],
+    ['projectStatus', 'Проект'],
+    ['size', 'Размер'],
+    ['timing', 'Сроки'],
+    ['budget', 'Бюджет'],
+    ['repairObject', 'Объект'],
+    ['repairType', 'Тип ремонта'],
+    ['area', 'Площадь'],
+    ['serviceType', 'Услуга'],
+    ['scope', 'Объём работ'],
+    ['calcType', 'Тип расчёта'],
+    ['calcRequest', 'Запрос'],
+    ['name', 'Имя'],
+    ['phone', 'Телефон']
+  ];
+
+  for (const [key, label] of fields) {
+    if (data[key]) {
+      lines.push(`${label}: ${data[key]}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 async function handleWebhook(req, res) {
@@ -182,7 +222,7 @@ async function handleWebhook(req, res) {
       text,
       from,
       session,
-      projectType: session.project || null,
+      projectType: session.project || null
     });
 
     const project = routed.project;
@@ -192,15 +232,24 @@ async function handleWebhook(req, res) {
     const nextStep = result.nextStep || session.step || 'start';
     const data = result.data || {};
 
-    updateSession(from, {
+    const updatedSession = updateSession(from, {
       project,
       step: nextStep,
-      data,
+      data
     });
 
     console.log('📌 PROJECT:', project);
     console.log('📌 NEXT STEP:', nextStep);
     console.log('📌 REPLY:', reply);
+
+    if (nextStep === 'completed' && !updatedSession.leadSent) {
+      const leadText = formatLeadMessage(project, updatedSession.data || {}, from);
+      await sendTelegramMessage(leadText);
+
+      updateSession(from, {
+        leadSent: true
+      });
+    }
 
     await markMessageAsRead(messageId, project);
 
@@ -215,5 +264,5 @@ async function handleWebhook(req, res) {
 
 module.exports = {
   verifyWebhook,
-  handleWebhook,
+  handleWebhook
 };
