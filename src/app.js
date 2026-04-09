@@ -1,37 +1,24 @@
-const express = require("express");
-require("dotenv").config();
-
-const pool = require("./db");
-const whatsappRoutes = require("./routes/whatsapp.routes");
-
+const express = require('express');
 const app = express();
 
-app.use(express.json({ limit: "10mb" }));
+const whatsappRoutes = require('./routes/whatsapp.routes');
 
-const PORT = process.env.PORT || 3000;
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-app.get("/", (req, res) => {
-  res.send("Clinic Bot v2 is running");
+app.use('/', whatsappRoutes);
+
+app.get('/', (req, res) => {
+  res.send('✅ Server is working');
 });
 
-app.get("/db-test", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT NOW()");
-    res.json({
-      ok: true,
-      time: result.rows[0],
-    });
-  } catch (err) {
-    console.error("DB TEST ERROR:", err);
-    res.status(500).json({
-      ok: false,
-      error: err.message,
-    });
-  }
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
-app.use("/", whatsappRoutes);
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server started on port ${PORT}`);
+app.use((err, req, res, next) => {
+  console.error('❌ Server error:', err.message);
+  res.status(500).json({ error: 'Internal server error' });
 });
+
+module.exports = app;
