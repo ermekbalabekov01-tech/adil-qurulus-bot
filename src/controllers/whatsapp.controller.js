@@ -78,10 +78,12 @@ async function markMessageAsRead(messageId, project = 'construction') {
   );
 }
 
-async function sendTypingIndicator(to, messageId, project = 'construction') {
+async function sendWhatsAppMessage(to, body, project = 'construction') {
   const { token, phoneNumberId } = getProjectConfig(project);
 
-  if (!token || !phoneNumberId || !to || !messageId) return;
+  if (!token || !phoneNumberId) {
+    throw new Error(`Не указаны token или phoneNumberId для проекта: ${project}`);
+  }
 
   const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
 
@@ -89,13 +91,9 @@ async function sendTypingIndicator(to, messageId, project = 'construction') {
     url,
     {
       messaging_product: 'whatsapp',
-      recipient_type: 'individual',
       to: normalizePhone(to),
-      status: 'read',
-      message_id: messageId,
-      typing_indicator: {
-        type: 'text',
-      },
+      type: 'text',
+      text: { body },
     },
     {
       headers: {
@@ -104,32 +102,6 @@ async function sendTypingIndicator(to, messageId, project = 'construction') {
       },
     }
   );
-}
-
-async function sendWhatsAppMessage(to, body, project = 'construction') {
-  const { token, phoneNumberId } = getProjectConfig(project);
-
-  if (!token || !phoneNumberId) {
-    throw new Error(`Не указаны токен или phone number id для проекта: ${project}`);
-  }
-
-  const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
-
-  const payload = {
-    messaging_product: 'whatsapp',
-    to: normalizePhone(to),
-    type: 'text',
-    text: {
-      body,
-    },
-  };
-
-  await axios.post(url, payload, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
 }
 
 function verifyWebhook(req, res) {
@@ -150,19 +122,18 @@ function verifyWebhook(req, res) {
   }
 }
 
-function getDelayMs(reply = '') {
+function getTypingDelay(reply = '') {
   const length = reply.length;
 
-  if (length < 80) return 900;
-  if (length < 180) return 1500;
-  if (length < 300) return 2200;
-  return 3000;
+  if (length <= 60) return 900;
+  if (length <= 160) return 1600;
+  if (length <= 300) return 2400;
+  return 3200;
 }
 
 async function handleWebhook(req, res) {
   try {
     const body = req.body;
-
     res.sendStatus(200);
 
     const entry = body?.entry?.[0];
@@ -172,7 +143,7 @@ async function handleWebhook(req, res) {
     if (!value) return;
 
     if (value.statuses) {
-      console.log('ℹ️ Status event:', JSON.stringify(value.statuses, null, 2));
+      console.log('ℹ️ STATUS EVENT:', JSON.stringify(value.statuses, null, 2));
       return;
     }
 
@@ -180,7 +151,7 @@ async function handleWebhook(req, res) {
     if (!message) return;
 
     const from = message.from;
-    const incomingMessageId = message.id;
+    const messageId = message.id;
     const type = message.type;
 
     let text = '';
@@ -231,11 +202,10 @@ async function handleWebhook(req, res) {
     console.log('📌 NEXT STEP:', nextStep);
     console.log('📌 REPLY:', reply);
 
-    await markMessageAsRead(incomingMessageId, project);
-    await sendTypingIndicator(from, incomingMessageId, project);
+    await markMessageAsRead(messageId, project);
 
-    const delayMs = getDelayMs(reply);
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const delay = getTypingDelay(reply);
+    await new Promise((resolve) => setTimeout(resolve, delay));
 
     await sendWhatsAppMessage(from, reply, project);
   } catch (error) {
