@@ -2,14 +2,177 @@ function normalizeText(text) {
   return (text || '').trim().toLowerCase();
 }
 
-function includesAny(message, variants = []) {
-  return variants.some((v) => message.includes(v));
+function hasAny(text, arr = []) {
+  return arr.some((item) => text.includes(item));
+}
+
+function cleanPhone(text) {
+  return String(text || '').replace(/\D/g, '');
+}
+
+function isPhone(text) {
+  const phone = cleanPhone(text);
+  return phone.length >= 10 && phone.length <= 15;
+}
+
+function isYes(text) {
+  return hasAny(text, ['да', 'ага', 'угу', 'конечно', 'хочу', 'интересно', 'нужно']);
+}
+
+function isNo(text) {
+  return hasAny(text, ['нет', 'не сейчас', 'пока нет', 'не хочу']);
+}
+
+function menuReply() {
+  return (
+    'Подскажите, пожалуйста, что вас сейчас интересует?\n\n' +
+    '1. Хочу построить дом / коттедж\n' +
+    '2. Нужен ремонт\n' +
+    '3. Нужны отдельные строительные работы\n' +
+    '4. Хочу посмотреть работы / получить консультацию'
+  );
+}
+
+function getMainDirection(message) {
+  if (message === '1' || hasAny(message, ['дом', 'коттедж', 'построить', 'стройка дома'])) {
+    return 'house';
+  }
+
+  if (message === '2' || hasAny(message, ['ремонт', 'отделк'])) {
+    return 'repair';
+  }
+
+  if (
+    message === '3' ||
+    hasAny(message, [
+      'фундамент',
+      'кровл',
+      'фасад',
+      'сантех',
+      'электрик',
+      'забор',
+      'брусчат',
+      'благо',
+      'отдельн',
+      'работы'
+    ])
+  ) {
+    return 'services';
+  }
+
+  if (
+    message === '4' ||
+    hasAny(message, ['работы', 'инст', 'консульт', 'менедж', 'довер', 'сертифик', '2гис'])
+  ) {
+    return 'trust';
+  }
+
+  return null;
+}
+
+function getHouseStage(message) {
+  if (message === '1' || hasAny(message, ['под ключ'])) return 'Дом под ключ';
+  if (message === '2' || hasAny(message, ['короб'])) return 'Коробка дома';
+  if (message === '3' || hasAny(message, ['фундамент'])) return 'Фундамент';
+  if (message === '4' || hasAny(message, ['консульт'])) return 'Нужна консультация';
+  return null;
+}
+
+function getLocation(message) {
+  if (message === '1' || hasAny(message, ['астана'])) return 'Астана';
+  if (message === '2' || hasAny(message, ['пригород', 'косшы', 'рядом с астаной'])) {
+    return 'Пригород / рядом с Астаной';
+  }
+  if (message === '3' || hasAny(message, ['не выбрали', 'пока нет участка', 'ещё не выбрали'])) {
+    return 'Пока ещё не выбрали участок';
+  }
+  if (message === '4' || hasAny(message, ['другой регион', 'караганда', 'алматы', 'регион'])) {
+    return 'Другой регион';
+  }
+  return null;
+}
+
+function getProjectStatus(message) {
+  if (message === '1' || hasAny(message, ['да', 'есть'])) return 'Да';
+  if (message === '2' || hasAny(message, ['нет', 'нужен проект'])) return 'Нет, нужен проект';
+  if (message === '3' || hasAny(message, ['в процессе', 'пока ещё'])) return 'Пока ещё в процессе';
+  return null;
+}
+
+function getStartTiming(message) {
+  if (message === '1' || hasAny(message, ['срочно'])) return 'Срочно';
+  if (message === '2' || hasAny(message, ['в течение месяца', 'месяц'])) return 'В течение месяца';
+  if (message === '3' || hasAny(message, ['1–3', '1-3', '1 3', 'ближайшие'])) {
+    return 'В ближайшие 1–3 месяца';
+  }
+  if (message === '4' || hasAny(message, ['позже'])) return 'Позже';
+  return null;
+}
+
+function getBudget(message) {
+  if (message === '1' || hasAny(message, ['до 10'])) return 'До 10 млн тг';
+  if (message === '2' || hasAny(message, ['10–20', '10-20'])) return '10–20 млн тг';
+  if (message === '3' || hasAny(message, ['20–50', '20-50'])) return '20–50 млн тг';
+  if (message === '4' || hasAny(message, ['50+', '50 +', 'свыше 50'])) return '50+ млн тг';
+  if (message === '5' || hasAny(message, ['не знаю', 'пока не знаю'])) return 'Пока не знаю';
+  return null;
+}
+
+function getRepairObject(message) {
+  if (message === '1' || hasAny(message, ['квартира'])) return 'Квартира';
+  if (message === '2' || hasAny(message, ['частный дом', 'дом'])) return 'Частный дом';
+  if (message === '3' || hasAny(message, ['коммер', 'помещ'])) return 'Коммерческое помещение';
+  return null;
+}
+
+function getRepairType(message) {
+  if (message === '1' || hasAny(message, ['под ключ'])) return 'Под ключ';
+  if (message === '2' || hasAny(message, ['чернов'])) return 'Черновой';
+  if (message === '3' || hasAny(message, ['частич', 'отдельные'])) return 'Частичный / отдельные работы';
+  return null;
+}
+
+function getServiceType(message) {
+  if (message === '1' || hasAny(message, ['фундамент'])) return 'Фундамент';
+  if (message === '2' || hasAny(message, ['кровл'])) return 'Кровля';
+  if (message === '3' || hasAny(message, ['фасад'])) return 'Фасад';
+  if (message === '4' || hasAny(message, ['сантех'])) return 'Сантехника';
+  if (message === '5' || hasAny(message, ['электрик'])) return 'Электрика';
+  if (message === '6' || hasAny(message, ['забор'])) return 'Забор';
+  if (message === '7' || hasAny(message, ['брусчат'])) return 'Брусчатка';
+  if (message === '8' || hasAny(message, ['благо'])) return 'Благоустройство';
+  if (message === '9' || hasAny(message, ['другое'])) return 'Другое';
+  return null;
+}
+
+function getTrustChoice(message) {
+  if (message === '1' || hasAny(message, ['работы', 'инст'])) return 'portfolio';
+  if (message === '2' || hasAny(message, ['2гис', 'адрес'])) return 'map';
+  if (message === '3' || hasAny(message, ['компан', 'довер', 'сертифик'])) return 'about';
+  if (message === '4' || hasAny(message, ['менедж'])) return 'manager';
+  if (message === '5' || hasAny(message, ['расч', 'стоим', 'кальк'])) return 'calc';
+  return null;
+}
+
+function getCalcType(message) {
+  if (message === '1' || hasAny(message, ['фундамент'])) return 'Фундамент';
+  if (message === '2' || hasAny(message, ['дом', 'коттедж'])) return 'Дом / коттедж';
+  if (message === '3' || hasAny(message, ['ремонт'])) return 'Ремонт';
+  if (message === '4' || hasAny(message, ['менедж', 'консульт'])) return 'Консультация менеджера';
+  return null;
+}
+
+function withData(sessionData, extra) {
+  return {
+    ...(sessionData || {}),
+    ...(extra || {})
+  };
 }
 
 function handleConstruction(text, session = {}) {
   const message = normalizeText(text);
   const step = session.step || 'start';
-  const data = session.data || {};
+  const sessionData = session.data || {};
 
   const INSTAGRAM_URL =
     process.env.INSTAGRAM_URL ||
@@ -21,53 +184,46 @@ function handleConstruction(text, session = {}) {
 
   const CERT_URL = process.env.CONSTRUCTION_CERTIFICATE_URL || '';
 
-  // ===== helpers =====
-  const backToMenu = () => ({
-    reply:
-      'Хорошо 👌\n\n' +
-      'Подскажите, пожалуйста, что вас сейчас интересует:\n' +
-      '1. Строительство дома / коттеджа\n' +
-      '2. Ремонт\n' +
-      '3. Отдельные строительные работы\n' +
-      '4. Посмотреть работы / консультация',
-    nextStep: 'main_menu',
-    data: {}
-  });
-
-  // ===== start =====
-  if (!text || step === 'start') {
+  if (hasAny(message, ['меню', 'назад', 'сначала', 'заново', 'стоп'])) {
     return {
       reply:
-        'Здравствуйте! 👋\n\n' +
-        'Вы написали в строительную компанию Adil Qurulus.\n' +
-        'Помогу быстро сориентироваться по строительству, ремонту или отдельным работам.\n\n' +
-        'Что вас интересует?\n' +
-        '1. Строительство дома / коттеджа\n' +
-        '2. Ремонт под ключ\n' +
-        '3. Отдельные строительные работы\n' +
-        '4. Посмотреть наши работы / получить консультацию',
+        'Хорошо 👌\n\n' +
+        menuReply(),
       nextStep: 'main_menu',
       data: {}
     };
   }
 
-  // ===== main menu =====
+  if (!text || step === 'start') {
+    return {
+      reply:
+        'Здравствуйте! 👋\n\n' +
+        'Вы написали в Adil Qurulus.\n' +
+        'Подскажу по строительству, ремонту и отдельным работам.\n\n' +
+        menuReply(),
+      nextStep: 'main_menu',
+      data: {}
+    };
+  }
+
   if (step === 'main_menu') {
-    if (message === '1' || includesAny(message, ['дом', 'коттедж', 'строитель'])) {
+    const direction = getMainDirection(message);
+
+    if (direction === 'house') {
       return {
         reply:
           'Отлично 👍\n\n' +
-          'Подскажите, пожалуйста, что вас интересует на данном этапе?\n' +
+          'Что вас интересует на данном этапе?\n' +
           '1. Дом под ключ\n' +
           '2. Коробка дома\n' +
           '3. Фундамент\n' +
           '4. Нужна консультация',
-        nextStep: 'house_interest',
-        data: { direction: 'Строительство дома / коттеджа' }
+        nextStep: 'house_stage',
+        data: withData(sessionData, { direction: 'Строительство дома / коттеджа' })
       };
     }
 
-    if (message === '2' || includesAny(message, ['ремонт'])) {
+    if (direction === 'repair') {
       return {
         reply:
           'Хорошо 👌\n\n' +
@@ -76,23 +232,11 @@ function handleConstruction(text, session = {}) {
           '2. Частный дом\n' +
           '3. Коммерческое помещение',
         nextStep: 'repair_object',
-        data: { direction: 'Ремонт' }
+        data: withData(sessionData, { direction: 'Ремонт' })
       };
     }
 
-    if (
-      message === '3' ||
-      includesAny(message, [
-        'фундамент',
-        'кровл',
-        'фасад',
-        'сантех',
-        'электрик',
-        'забор',
-        'брусчат',
-        'работ'
-      ])
-    ) {
+    if (direction === 'services') {
       return {
         reply:
           'Понял вас 👍\n\n' +
@@ -107,17 +251,14 @@ function handleConstruction(text, session = {}) {
           '8. Благоустройство\n' +
           '9. Другое',
         nextStep: 'service_type',
-        data: { direction: 'Отдельные строительные работы' }
+        data: withData(sessionData, { direction: 'Отдельные строительные работы' })
       };
     }
 
-    if (
-      message === '4' ||
-      includesAny(message, ['работы', 'инст', 'консульт', 'сертифик', 'довер', 'менедж'])
-    ) {
+    if (direction === 'trust') {
       return {
         reply:
-          'Хорошо 👌\n\n' +
+          'Конечно 👌\n\n' +
           'Что вам удобнее сейчас?\n' +
           '1. Посмотреть наши работы\n' +
           '2. Получить адрес в 2ГИС\n' +
@@ -125,48 +266,55 @@ function handleConstruction(text, session = {}) {
           '4. Связаться с менеджером\n' +
           '5. Предварительный расчёт',
         nextStep: 'trust_menu',
-        data: {}
+        data: sessionData
       };
     }
 
-    return backToMenu();
+    return {
+      reply:
+        'Я вас понял.\nНо чтобы не ошибиться, выберите, пожалуйста, один из вариантов:\n\n' +
+        menuReply(),
+      nextStep: 'main_menu',
+      data: sessionData
+    };
   }
 
-  // ===== trust menu =====
   if (step === 'trust_menu') {
-    if (message === '1' || includesAny(message, ['работы', 'инст'])) {
+    const choice = getTrustChoice(message);
+
+    if (choice === 'portfolio') {
       return {
         reply:
           'Вот наша страница с примерами работ:\n' +
           `${INSTAGRAM_URL}\n\n` +
           'Если захотите, после просмотра помогу оставить заявку или связаться с менеджером.',
         nextStep: 'after_trust',
-        data: { trustSource: 'portfolio' }
+        data: withData(sessionData, { trustChoice: 'portfolio' })
       };
     }
 
-    if (message === '2' || includesAny(message, ['2гис', 'адрес'])) {
+    if (choice === 'map') {
       return {
         reply:
           'Вот наша компания в 2ГИС:\n' +
           `${MAP_URL}\n\n` +
           'Если нужно, дальше помогу оставить заявку или быстро связаться с менеджером.',
         nextStep: 'after_trust',
-        data: { trustSource: 'map' }
+        data: withData(sessionData, { trustChoice: 'map' })
       };
     }
 
-    if (message === '3' || includesAny(message, ['компан', 'довер', 'сертифик', 'союз'])) {
+    if (choice === 'about') {
       let reply =
         'Adil Qurulus — строительная компания по Астане и ближайшим пригородам.\n' +
-        'Работаем по строительству домов, ремонту и отдельным строительным работам.\n';
+        'Работаем по строительству домов, ремонту и отдельным строительным работам.';
 
       if (CERT_URL) {
-        reply += `\nСертификат / подтверждение:\n${CERT_URL}\n`;
+        reply += `\n\nСертификат / подтверждение:\n${CERT_URL}`;
       }
 
       reply +=
-        '\nЕсли хотите, могу сразу:\n' +
+        '\n\nЕсли хотите, могу сразу:\n' +
         '1. Показать наши работы\n' +
         '2. Дать адрес в 2ГИС\n' +
         '3. Связать с менеджером\n' +
@@ -175,19 +323,19 @@ function handleConstruction(text, session = {}) {
       return {
         reply,
         nextStep: 'after_about',
-        data
+        data: withData(sessionData, { trustChoice: 'about' })
       };
     }
 
-    if (message === '4' || includesAny(message, ['менедж'])) {
+    if (choice === 'manager') {
       return {
         reply: 'Конечно. Подскажите, пожалуйста, как к вам можно обращаться?',
         nextStep: 'manager_name',
-        data: { direction: 'Связь с менеджером' }
+        data: withData(sessionData, { direction: 'Связь с менеджером' })
       };
     }
 
-    if (message === '5' || includesAny(message, ['расч', 'стоим', 'кальк'])) {
+    if (choice === 'calc') {
       return {
         reply:
           'Что хотите предварительно рассчитать?\n' +
@@ -195,8 +343,8 @@ function handleConstruction(text, session = {}) {
           '2. Дом / коттедж\n' +
           '3. Ремонт\n' +
           '4. Нужна консультация менеджера',
-        nextStep: 'calculation_type',
-        data: { direction: 'Предварительный расчёт' }
+        nextStep: 'calc_type',
+        data: withData(sessionData, { direction: 'Предварительный расчёт' })
       };
     }
 
@@ -209,38 +357,83 @@ function handleConstruction(text, session = {}) {
         '4. Связаться с менеджером\n' +
         '5. Предварительный расчёт',
       nextStep: 'trust_menu',
-      data
+      data: sessionData
     };
   }
 
-  // ===== after about =====
-  if (step === 'after_about') {
-    if (message === '1' || includesAny(message, ['работы', 'инст'])) {
+  if (step === 'after_trust') {
+    if (message === '1' || hasAny(message, ['заяв'])) {
       return {
-        reply: `Вот наша страница с работами:\n${INSTAGRAM_URL}`,
-        nextStep: 'after_trust',
-        data: { trustSource: 'portfolio' }
+        reply:
+          'Хорошо 👌\n\n' +
+          menuReply(),
+        nextStep: 'main_menu',
+        data: {}
       };
     }
 
-    if (message === '2' || includesAny(message, ['2гис', 'адрес'])) {
-      return {
-        reply: `Вот наша компания в 2ГИС:\n${MAP_URL}`,
-        nextStep: 'after_trust',
-        data: { trustSource: 'map' }
-      };
-    }
-
-    if (message === '3' || includesAny(message, ['менедж'])) {
+    if (message === '2' || hasAny(message, ['менедж'])) {
       return {
         reply: 'Подскажите, пожалуйста, как к вам можно обращаться?',
         nextStep: 'manager_name',
-        data: { direction: 'Связь с менеджером' }
+        data: withData(sessionData, { direction: 'Связь с менеджером' })
       };
     }
 
-    if (message === '4' || includesAny(message, ['заяв'])) {
-      return backToMenu();
+    if (message === '3' || hasAny(message, ['меню', 'назад'])) {
+      return {
+        reply:
+          'Хорошо 👌\n\n' +
+          menuReply(),
+        nextStep: 'main_menu',
+        data: {}
+      };
+    }
+
+    return {
+      reply:
+        'Если хотите продолжить:\n' +
+        '1. Оставить заявку\n' +
+        '2. Связаться с менеджером\n' +
+        '3. Вернуться в меню',
+      nextStep: 'after_trust',
+      data: sessionData
+    };
+  }
+
+  if (step === 'after_about') {
+    if (message === '1' || hasAny(message, ['работы', 'инст'])) {
+      return {
+        reply: `Вот наша страница с работами:\n${INSTAGRAM_URL}`,
+        nextStep: 'after_trust',
+        data: withData(sessionData, { trustChoice: 'portfolio' })
+      };
+    }
+
+    if (message === '2' || hasAny(message, ['2гис', 'адрес'])) {
+      return {
+        reply: `Вот наша компания в 2ГИС:\n${MAP_URL}`,
+        nextStep: 'after_trust',
+        data: withData(sessionData, { trustChoice: 'map' })
+      };
+    }
+
+    if (message === '3' || hasAny(message, ['менедж'])) {
+      return {
+        reply: 'Подскажите, пожалуйста, как к вам можно обращаться?',
+        nextStep: 'manager_name',
+        data: withData(sessionData, { direction: 'Связь с менеджером' })
+      };
+    }
+
+    if (message === '4' || hasAny(message, ['заяв'])) {
+      return {
+        reply:
+          'Хорошо 👌\n\n' +
+          menuReply(),
+        nextStep: 'main_menu',
+        data: {}
+      };
     }
 
     return {
@@ -251,47 +444,12 @@ function handleConstruction(text, session = {}) {
         '3. Связать с менеджером\n' +
         '4. Помочь оставить заявку',
       nextStep: 'after_about',
-      data
+      data: sessionData
     };
   }
 
-  // ===== after trust =====
-  if (step === 'after_trust') {
-    if (message === '1' || includesAny(message, ['заяв'])) {
-      return backToMenu();
-    }
-
-    if (message === '2' || includesAny(message, ['менедж'])) {
-      return {
-        reply: 'Подскажите, пожалуйста, как к вам можно обращаться?',
-        nextStep: 'manager_name',
-        data: { direction: 'Связь с менеджером' }
-      };
-    }
-
-    if (message === '3' || includesAny(message, ['меню', 'назад'])) {
-      return backToMenu();
-    }
-
-    return {
-      reply:
-        'Если хотите продолжить:\n' +
-        '1. Оставить заявку\n' +
-        '2. Связаться с менеджером\n' +
-        '3. Вернуться в меню',
-      nextStep: 'after_trust',
-      data
-    };
-  }
-
-  // ===== house flow =====
-  if (step === 'house_interest') {
-    let interest = text;
-
-    if (message === '1' || includesAny(message, ['под ключ'])) interest = 'Дом под ключ';
-    if (message === '2' || includesAny(message, ['короб'])) interest = 'Коробка дома';
-    if (message === '3' || includesAny(message, ['фундамент'])) interest = 'Фундамент';
-    if (message === '4' || includesAny(message, ['консульт'])) interest = 'Консультация';
+  if (step === 'house_stage') {
+    const houseStage = getHouseStage(message) || text;
 
     return {
       reply:
@@ -301,11 +459,13 @@ function handleConstruction(text, session = {}) {
         '3. Пока ещё не выбрали участок\n' +
         '4. Другой регион',
       nextStep: 'house_location',
-      data: { ...data, houseInterest: interest }
+      data: withData(sessionData, { houseStage })
     };
   }
 
   if (step === 'house_location') {
+    const location = getLocation(message) || text;
+
     return {
       reply:
         'Понял вас 👍\n\n' +
@@ -314,18 +474,20 @@ function handleConstruction(text, session = {}) {
         '2. Нет, нужен проект\n' +
         '3. Пока ещё в процессе',
       nextStep: 'house_project',
-      data: { ...data, location: text }
+      data: withData(sessionData, { location })
     };
   }
 
   if (step === 'house_project') {
+    const projectStatus = getProjectStatus(message) || text;
+
     return {
       reply:
         'Хорошо 👌\n\n' +
         'Напишите, пожалуйста, примерную площадь дома или размеры объекта.\n' +
         'Например: 10x12, 120 м² и т.д.',
       nextStep: 'house_size',
-      data: { ...data, hasProject: text }
+      data: withData(sessionData, { projectStatus })
     };
   }
 
@@ -338,12 +500,14 @@ function handleConstruction(text, session = {}) {
         '2. В течение месяца\n' +
         '3. В ближайшие 1–3 месяца\n' +
         '4. Позже',
-      nextStep: 'house_start_time',
-      data: { ...data, size: text }
+      nextStep: 'house_timing',
+      data: withData(sessionData, { size: text })
     };
   }
 
-  if (step === 'house_start_time') {
+  if (step === 'house_timing') {
+    const timing = getStartTiming(message) || text;
+
     return {
       reply:
         'И ещё сориентируйте, пожалуйста, по бюджету. Можно ориентировочно.\n' +
@@ -353,17 +517,17 @@ function handleConstruction(text, session = {}) {
         '4. 50+ млн тг\n' +
         '5. Пока не знаю',
       nextStep: 'house_budget',
-      data: { ...data, startTime: text }
+      data: withData(sessionData, { timing })
     };
   }
 
   if (step === 'house_budget') {
+    const budget = getBudget(message) || text;
+
     return {
-      reply:
-        'Хорошо, записал 👍\n' +
-        'Подскажите, пожалуйста, как к вам можно обращаться?',
+      reply: 'Хорошо, записал 👍\nПодскажите, пожалуйста, как к вам можно обращаться?',
       nextStep: 'house_name',
-      data: { ...data, budget: text }
+      data: withData(sessionData, { budget })
     };
   }
 
@@ -371,11 +535,13 @@ function handleConstruction(text, session = {}) {
     return {
       reply: `Очень приятно, ${text}.\nТеперь напишите, пожалуйста, ваш номер телефона для связи.`,
       nextStep: 'house_phone',
-      data: { ...data, name: text }
+      data: withData(sessionData, { name: text })
     };
   }
 
   if (step === 'house_phone') {
+    const phone = isPhone(text) ? cleanPhone(text) : text;
+
     return {
       reply:
         'Спасибо 🙌\n\n' +
@@ -384,12 +550,13 @@ function handleConstruction(text, session = {}) {
         `2ГИС:\n${MAP_URL}` +
         (CERT_URL ? `\n\nСертификат:\n${CERT_URL}` : ''),
       nextStep: 'completed',
-      data: { ...data, phone: text }
+      data: withData(sessionData, { phone })
     };
   }
 
-  // ===== repair flow =====
   if (step === 'repair_object') {
+    const repairObject = getRepairObject(message) || text;
+
     return {
       reply:
         'Хорошо 👌\n\n' +
@@ -398,7 +565,7 @@ function handleConstruction(text, session = {}) {
         '2. Пригород / рядом с Астаной\n' +
         '3. Другой регион',
       nextStep: 'repair_location',
-      data: { ...data, repairObject: text }
+      data: withData(sessionData, { repairObject })
     };
   }
 
@@ -406,7 +573,7 @@ function handleConstruction(text, session = {}) {
     return {
       reply: 'Напишите, пожалуйста, площадь объекта или примерные размеры.',
       nextStep: 'repair_area',
-      data: { ...data, location: text }
+      data: withData(sessionData, { location: text })
     };
   }
 
@@ -418,27 +585,29 @@ function handleConstruction(text, session = {}) {
         '2. Черновой\n' +
         '3. Частичный / отдельные работы',
       nextStep: 'repair_type',
-      data: { ...data, area: text }
+      data: withData(sessionData, { area: text })
     };
   }
 
   if (step === 'repair_type') {
+    const repairType = getRepairType(message) || text;
+
     return {
       reply:
         'Когда ориентировочно хотите начать?\n' +
         '1. Срочно\n' +
         '2. В течение месяца\n' +
         '3. Позже',
-      nextStep: 'repair_start_time',
-      data: { ...data, repairType: text }
+      nextStep: 'repair_timing',
+      data: withData(sessionData, { repairType })
     };
   }
 
-  if (step === 'repair_start_time') {
+  if (step === 'repair_timing') {
     return {
       reply: 'Подскажите, пожалуйста, ваше имя.',
       nextStep: 'repair_name',
-      data: { ...data, startTime: text }
+      data: withData(sessionData, { timing: text })
     };
   }
 
@@ -446,22 +615,25 @@ function handleConstruction(text, session = {}) {
     return {
       reply: `Очень приятно, ${text}.\nТеперь напишите ваш номер телефона для связи.`,
       nextStep: 'repair_phone',
-      data: { ...data, name: text }
+      data: withData(sessionData, { name: text })
     };
   }
 
   if (step === 'repair_phone') {
+    const phone = isPhone(text) ? cleanPhone(text) : text;
+
     return {
       reply:
         'Спасибо 🙌\n' +
         'Заявка по ремонту принята. Наш менеджер свяжется с вами для уточнения деталей.',
       nextStep: 'completed',
-      data: { ...data, phone: text }
+      data: withData(sessionData, { phone })
     };
   }
 
-  // ===== services flow =====
   if (step === 'service_type') {
+    const serviceType = getServiceType(message) || text;
+
     return {
       reply:
         'Понял вас 👍\n\n' +
@@ -470,19 +642,19 @@ function handleConstruction(text, session = {}) {
         '2. Пригород / рядом с Астаной\n' +
         '3. Другой регион',
       nextStep: 'service_location',
-      data: { ...data, serviceType: text }
+      data: withData(sessionData, { serviceType })
     };
   }
 
   if (step === 'service_location') {
     return {
       reply: 'Опишите, пожалуйста, кратко задачу или объём работ.',
-      nextStep: 'service_volume',
-      data: { ...data, location: text }
+      nextStep: 'service_scope',
+      data: withData(sessionData, { location: text })
     };
   }
 
-  if (step === 'service_volume') {
+  if (step === 'service_scope') {
     return {
       reply:
         'Есть ли у вас фото, проект или размеры объекта?\n' +
@@ -490,7 +662,7 @@ function handleConstruction(text, session = {}) {
         '2. Пока нет\n' +
         '3. Отправлю позже',
       nextStep: 'service_materials',
-      data: { ...data, volume: text }
+      data: withData(sessionData, { scope: text })
     };
   }
 
@@ -498,7 +670,7 @@ function handleConstruction(text, session = {}) {
     return {
       reply: 'Подскажите, пожалуйста, ваше имя.',
       nextStep: 'service_name',
-      data: { ...data, materialsInfo: text }
+      data: withData(sessionData, { materialsInfo: text })
     };
   }
 
@@ -506,27 +678,30 @@ function handleConstruction(text, session = {}) {
     return {
       reply: `Очень приятно, ${text}.\nТеперь напишите ваш номер телефона для связи.`,
       nextStep: 'service_phone',
-      data: { ...data, name: text }
+      data: withData(sessionData, { name: text })
     };
   }
 
   if (step === 'service_phone') {
+    const phone = isPhone(text) ? cleanPhone(text) : text;
+
     return {
       reply:
         'Спасибо 🙌\n' +
         'Ваша заявка принята. Наш специалист свяжется с вами для уточнения деталей.',
       nextStep: 'completed',
-      data: { ...data, phone: text }
+      data: withData(sessionData, { phone })
     };
   }
 
-  // ===== calculation flow =====
-  if (step === 'calculation_type') {
-    if (message === '4' || includesAny(message, ['менедж'])) {
+  if (step === 'calc_type') {
+    const calcType = getCalcType(message) || text;
+
+    if (calcType === 'Консультация менеджера') {
       return {
         reply: 'Подскажите, пожалуйста, ваше имя.',
         nextStep: 'manager_name',
-        data: { ...data, direction: 'Консультация по расчёту' }
+        data: withData(sessionData, { direction: 'Консультация по расчёту' })
       };
     }
 
@@ -538,7 +713,7 @@ function handleConstruction(text, session = {}) {
         '— дом 120 м²\n' +
         '— ремонт квартиры 65 м²',
       nextStep: 'calc_request',
-      data: { ...data, calcType: text }
+      data: withData(sessionData, { calcType })
     };
   }
 
@@ -546,7 +721,7 @@ function handleConstruction(text, session = {}) {
     return {
       reply: 'Подскажите, пожалуйста, ваше имя.',
       nextStep: 'calc_name',
-      data: { ...data, calcRequest: text }
+      data: withData(sessionData, { calcRequest: text })
     };
   }
 
@@ -554,56 +729,68 @@ function handleConstruction(text, session = {}) {
     return {
       reply: `Спасибо, ${text}.\nТеперь напишите ваш номер телефона для связи.`,
       nextStep: 'calc_phone',
-      data: { ...data, name: text }
+      data: withData(sessionData, { name: text })
     };
   }
 
   if (step === 'calc_phone') {
+    const phone = isPhone(text) ? cleanPhone(text) : text;
+
     return {
       reply:
         'Спасибо 🙌\n' +
         'Запрос на расчёт принят. Менеджер свяжется с вами для уточнения деталей.',
       nextStep: 'completed',
-      data: { ...data, phone: text }
+      data: withData(sessionData, { phone })
     };
   }
 
-  // ===== manager flow =====
   if (step === 'manager_name') {
     return {
       reply: `Спасибо, ${text}.\nТеперь напишите ваш номер телефона для связи.`,
       nextStep: 'manager_phone',
-      data: { ...data, name: text }
+      data: withData(sessionData, { name: text })
     };
   }
 
   if (step === 'manager_phone') {
+    const phone = isPhone(text) ? cleanPhone(text) : text;
+
     return {
       reply:
         'Спасибо 🙌\n' +
         'Передаю вашу заявку менеджеру. С вами свяжутся в ближайшее время.',
       nextStep: 'completed',
-      data: { ...data, phone: text }
+      data: withData(sessionData, { phone })
     };
   }
 
-  // ===== completed =====
   if (step === 'completed') {
+    if (hasAny(message, ['новый вопрос', 'ещё вопрос', 'другой вопрос', 'заново', 'меню'])) {
+      return {
+        reply:
+          'Конечно 👌\n\n' +
+          menuReply(),
+        nextStep: 'main_menu',
+        data: {}
+      };
+    }
+
     return {
       reply:
-        'Ваша заявка уже принята.\n' +
+        'Ваша заявка уже принята 🙌\n' +
         'Если появится новый вопрос — просто напишите, и я помогу дальше.',
       nextStep: 'completed',
-      data
+      data: sessionData
     };
   }
 
   return {
     reply:
-      'Извините, я не совсем понял ваш ответ.\n' +
-      'Пожалуйста, напишите сообщение ещё раз, и я помогу.',
-    nextStep: step,
-    data
+      'Я вас понял, но чтобы не ошибиться, напишите, пожалуйста, чуть подробнее или выберите нужный вариант из меню.\n\n' +
+      menuReply(),
+    nextStep: 'main_menu',
+    data: {}
   };
 }
 
