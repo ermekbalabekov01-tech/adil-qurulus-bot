@@ -58,26 +58,30 @@ function getProjectConfig(project = 'construction') {
 }
 
 async function markMessageAsRead(messageId, project = 'construction') {
-  const { token, phoneNumberId } = getProjectConfig(project);
+  try {
+    const { token, phoneNumberId } = getProjectConfig(project);
 
-  if (!token || !phoneNumberId || !messageId) return;
+    if (!token || !phoneNumberId || !messageId) return;
 
-  const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
+    const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
 
-  await axios.post(
-    url,
-    {
-      messaging_product: 'whatsapp',
-      status: 'read',
-      message_id: messageId
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
+    await axios.post(
+      url,
+      {
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       }
-    }
-  );
+    );
+  } catch (error) {
+    console.error('❌ markMessageAsRead error:', error.response?.data || error.message);
+  }
 }
 
 async function sendWhatsAppMessage(to, body, project = 'construction') {
@@ -141,7 +145,9 @@ function formatLeadMessage(project, data = {}, from = '') {
 
   const lines = [title, ''];
 
-  if (from) lines.push(`WhatsApp: ${from}`);
+  if (from) {
+    lines.push(`WhatsApp: ${from}`);
+  }
 
   const fields = [
     ['direction', 'Направление'],
@@ -174,6 +180,7 @@ function formatLeadMessage(project, data = {}, from = '') {
 async function handleWebhook(req, res) {
   try {
     const body = req.body;
+
     res.sendStatus(200);
 
     const entry = body?.entry?.[0];
@@ -225,7 +232,7 @@ async function handleWebhook(req, res) {
       projectType: session.project || null
     });
 
-    const project = routed.project;
+    const project = routed.project || 'construction';
     const result = routed.result || {};
 
     const reply = result.reply || 'Спасибо! Ваше сообщение получено.';
