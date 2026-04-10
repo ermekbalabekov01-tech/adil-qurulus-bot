@@ -39,6 +39,11 @@ function updateSession(phone, updates = {}) {
     updatedAt: new Date().toISOString()
   };
 
+  // если пользователь вышел из completed в новый диалог — разрешаем новый лид
+  if (updates.step && updates.step !== 'completed') {
+    next.leadSent = false;
+  }
+
   sessions.set(key, next);
   return next;
 }
@@ -131,10 +136,10 @@ function verifyWebhook(req, res) {
 function getTypingDelay(reply = '') {
   const length = reply.length;
 
-  if (length <= 60) return 900;
-  if (length <= 160) return 1600;
-  if (length <= 300) return 2400;
-  return 3200;
+  if (length <= 60) return 800;
+  if (length <= 160) return 1400;
+  if (length <= 300) return 2200;
+  return 3000;
 }
 
 function formatLeadMessage(project, data = {}, from = '') {
@@ -181,7 +186,7 @@ async function handleWebhook(req, res) {
   try {
     const body = req.body;
 
-    // Meta надо ответить быстро
+    // отвечаем Meta сразу
     res.sendStatus(200);
 
     const entry = body?.entry?.[0];
@@ -228,7 +233,6 @@ async function handleWebhook(req, res) {
 
     const routed = await routeMessage({
       text,
-      from,
       session,
       projectType: session.project || 'construction'
     });
@@ -250,7 +254,6 @@ async function handleWebhook(req, res) {
     console.log('📌 NEXT STEP:', nextStep);
     console.log('📌 REPLY:', reply);
 
-    // Отправляем лид в Telegram только один раз
     if (nextStep === 'completed' && !updatedSession.leadSent) {
       const leadText = formatLeadMessage(project, updatedSession.data || {}, from);
       await sendTelegramMessage(leadText);
