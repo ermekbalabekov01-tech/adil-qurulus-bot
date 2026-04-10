@@ -228,11 +228,13 @@ async function handleWebhook(req, res) {
     const nextStep = result.nextStep || session.step || 'start';
     const data = result.data || {};
 
-    const updatedSession = updateSession(from, {
+    updateSession(from, {
       project,
       step: nextStep,
       data
     });
+
+    const currentSession = getSession(from);
 
     console.log('📌 PROJECT:', project);
     console.log('📌 NEXT STEP:', nextStep);
@@ -241,31 +243,49 @@ async function handleWebhook(req, res) {
     await markMessageAsRead(messageId, project);
 
     if (nextStep === 'completed') {
+      console.log('🔥 ДОШЛИ ДО COMPLETED');
+
       const freshSession = getSession(from);
 
       if (!freshSession.leadSent) {
-        await sendTelegramLead({
+        console.log('📨 Пытаюсь отправить в Telegram:', freshSession.data);
+
+        const telegramOk = await sendTelegramLead({
           whatsapp: from,
           ...freshSession.data
         });
 
-        updateSession(from, {
-          leadSent: true
-        });
+        console.log('📨 Результат Telegram:', telegramOk);
+
+        if (telegramOk) {
+          updateSession(from, {
+            leadSent: true
+          });
+        }
+      } else {
+        console.log('⛔ Telegram уже отправляли ранее');
       }
 
       const finalSession = getSession(from);
 
       if (!finalSession.bitrixSent) {
-        await sendLeadToBitrix({
+        console.log('📤 Пытаюсь отправить в Bitrix:', finalSession.data);
+
+        const bitrixOk = await sendLeadToBitrix({
           name: finalSession.data?.name || 'Не указано',
           phone: finalSession.data?.phone || from,
           comment: buildBitrixComment(finalSession.data || {}, from)
         });
 
-        updateSession(from, {
-          bitrixSent: true
-        });
+        console.log('📤 Результат Bitrix:', bitrixOk);
+
+        if (bitrixOk) {
+          updateSession(from, {
+            bitrixSent: true
+          });
+        }
+      } else {
+        console.log('⛔ Bitrix уже отправляли ранее');
       }
     }
 
