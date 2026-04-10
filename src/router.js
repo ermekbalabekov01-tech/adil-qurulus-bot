@@ -1,27 +1,31 @@
-const { handleClinic } = require('./modules/clinic/scenario');
 const { handleConstruction } = require('./modules/construction/scenario');
+// если клинику пока не трогаем, её можно не подключать
+// const { handleClinic } = require('./modules/clinic/scenario');
 
-function routeMessage({ text, from, session = {}, projectType = null }) {
+function detectProject(text = '') {
+  const t = String(text).toLowerCase();
 
-  // если уже определили проект
-  if (projectType === 'clinic') {
+  // пока по умолчанию всё ведём в стройку
+  return 'construction';
+}
+
+function routeMessage({ text, session, projectType }) {
+  let project = projectType || session?.project;
+
+  if (!project) {
+    project = detectProject(text);
+  }
+
+  if (project === 'construction') {
     return {
-      project: 'clinic',
-      result: handleClinic(text, session),
+      project,
+      result: handleConstruction(text, session || {})
     };
   }
 
-  if (projectType === 'construction') {
-    return {
-      project: 'construction',
-      result: handleConstruction(text, session),
-    };
-  }
-
-  // пока всё отправляем в стройку
   return {
     project: 'construction',
-    result: handleConstruction(text, session),
+    result: handleConstruction(text, session || {})
   };
 }
 
