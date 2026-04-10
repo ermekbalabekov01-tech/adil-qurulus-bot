@@ -24,37 +24,74 @@ function isResetCommand(text) {
   return ['меню', 'назад', 'заново', 'сначала', 'стоп'].includes(t);
 }
 
-function looksLikeLeadIntent(text) {
-  const t = normalizeText(text);
+function looksLikePhone(text) {
+  const n = String(text || '').replace(/\D/g, '');
+  return n.length >= 10 && n.length <= 15;
+}
 
+function looksLikeSize(text) {
+  const t = normalizeText(text);
   return (
+    /\d+\s*[xх]\s*\d+/.test(t) ||
+    /\d+\s*(м2|м²|кв|квадрат)/.test(t) ||
+    /^\d+\/\d+$/.test(t)
+  );
+}
+
+function looksLikeLocation(text) {
+  const t = normalizeText(text);
+  return (
+    t.includes('астана') ||
+    t.includes('косшы') ||
+    t.includes('пригород') ||
+    t.includes('рядом с астаной') ||
+    t.includes('район')
+  );
+}
+
+function countLeadSignals(text, session) {
+  const t = normalizeText(text);
+  let score = 0;
+
+  if (
     t.includes('хочу построить') ||
     t.includes('хочу дом') ||
-    t.includes('нужен дом') ||
-    t.includes('нужен ремонт') ||
-    t.includes('нужен расчет') ||
-    t.includes('нужен расчёт') ||
-    t.includes('хочу расчет') ||
-    t.includes('хочу расчёт') ||
-    t.includes('хочу консультацию') ||
-    t.includes('нужна консультация') ||
+    t.includes('дом построить') ||
+    t.includes('коттедж')
+  ) score += 1;
+
+  if (
+    t.includes('есть проект') ||
     t.includes('проект есть') ||
-    t.includes('участок есть') ||
-    t.includes('фундамент нужен')
-  );
+    t.includes('есть участок') ||
+    t.includes('участок есть')
+  ) score += 1;
+
+  if (looksLikeSize(t)) score += 1;
+  if (looksLikeLocation(t)) score += 1;
+
+  if (
+    t.includes('под ключ') ||
+    t.includes('расчет') ||
+    t.includes('расчёт') ||
+    t.includes('консультац')
+  ) score += 1;
+
+  const data = session?.data || {};
+  if (data.size) score += 1;
+  if (data.location) score += 1;
+  if (data.projectStatus) score += 1;
+
+  return score;
 }
 
 function shouldUseAI(message, session) {
   const text = normalizeText(message);
   const step = session?.step || 'start';
 
-  // После completed — да
   if (step === 'completed') return true;
-
-  // Если уже в AI-диалоге — тоже да
   if (step === 'ai_dialog') return true;
 
-  // Жёсткие шаги анкеты — нет
   const lockedSteps = [
     'house_stage',
     'house_location',
@@ -64,7 +101,6 @@ function shouldUseAI(message, session) {
     'house_budget',
     'house_name',
     'house_phone',
-
     'repair_object',
     'repair_location',
     'repair_area',
@@ -72,47 +108,37 @@ function shouldUseAI(message, session) {
     'repair_timing',
     'repair_name',
     'repair_phone',
-
     'service_type',
     'service_location',
     'service_scope',
     'service_materials',
     'service_name',
     'service_phone',
-
     'trust_menu',
     'after_trust',
     'after_about',
-
     'calc_type',
     'calc_request',
     'calc_name',
     'calc_phone',
-
     'manager_name',
-    'manager_phone'
+    'manager_phone',
+    'lead_capture_name',
+    'lead_capture_phone'
   ];
 
   if (lockedSteps.includes(step)) return false;
-
   if (isResetCommand(text)) return false;
-
-  // Простые цифры обычно в сценарий,
-  // но если это похоже на свободный лидовый вход — ИИ
   if (/^[1-9]$/.test(text)) return false;
-
   if (isGreeting(text)) return false;
 
-  if (looksLikeLeadIntent(text)) return true;
-
-  if (text.length >= 8) return true;
-
-  return false;
+  return text.length >= 6;
 }
 
 async function routeMessage({ text, session, projectType }) {
   const project = projectType || session?.project || 'construction';
   const normalized = normalizeText(text);
+  const currentData = session?.data || {};
 
   if (project !== 'construction') {
     return {
@@ -121,7 +147,6 @@ async function routeMessage({ text, session, projectType }) {
     };
   }
 
-  // Команды сброса всегда уводят в сценарий
   if (isResetCommand(normalized)) {
     return {
       project: 'construction',
@@ -129,7 +154,6 @@ async function routeMessage({ text, session, projectType }) {
     };
   }
 
-  // После завершённой заявки
   if (session?.step === 'completed') {
     if (isGreeting(normalized)) {
       return {
@@ -137,7 +161,7 @@ async function routeMessage({ text, session, projectType }) {
         result: {
           reply:
             'Здравствуйте 👋\n\n' +
-            'Могу помочь дальше по строительству, ремонту или расчёту.\n' +
+            'Могу помочь дальше по строительству, ремонту или предварительному расчёту.\n' +
             'Что вас сейчас интересует?',
           nextStep: 'ai_dialog',
           data: session?.data || {}
@@ -166,19 +190,82 @@ async function routeMessage({ text, session, projectType }) {
       result: {
         reply:
           'Хороший вопрос 👍\n\n' +
-          'Подскажу по строительству, ремонту или отдельным работам.\n' +
-          'Если хотите, могу сразу сориентировать по вашему объекту или помочь с предварительным расчётом.',
+          'Подскажу по строительству, ремонту или отдельным работам. Если хотите, могу сразу сориентировать по вашему объекту.',
         nextStep: 'ai_dialog',
         data: session?.data || {}
       }
     };
   }
 
-  // Если уже идёт AI-диалог, не сбрасываемся на коротких сообщениях типа 10/18
+  if (session?.step === 'lead_capture_name') {
+    return {
+      project: 'construction',
+      result: {
+        reply: `Отлично, ${text} 👍\nТеперь напишите, пожалуйста, ваш номер телефона для связи.`,
+        nextStep: 'lead_capture_phone',
+        data: {
+          ...currentData,
+          name: text
+        }
+      }
+    };
+  }
+
+  if (session?.step === 'lead_capture_phone') {
+    if (looksLikePhone(text)) {
+      return {
+        project: 'construction',
+        result: {
+          reply:
+            'Спасибо 🙌\n\n' +
+            'Заявку зафиксировал. Передаю информацию менеджеру — он свяжется с вами, чтобы уточнить детали и подготовить предварительный расчёт.',
+          nextStep: 'completed',
+          data: {
+            ...currentData,
+            phone: text.replace(/\D/g, '')
+          }
+        }
+      };
+    }
+
+    return {
+      project: 'construction',
+      result: {
+        reply: 'Подскажите, пожалуйста, номер телефона в удобном формате для связи.',
+        nextStep: 'lead_capture_phone',
+        data: currentData
+      }
+    };
+  }
+
   if (session?.step === 'ai_dialog') {
+    const mergedData = { ...currentData };
+
+    if (looksLikeSize(text)) mergedData.size = text;
+    if (looksLikeLocation(text)) mergedData.location = text;
+    if (normalized.includes('проект')) mergedData.projectStatus = text;
+
+    const signals = countLeadSignals(text, { data: mergedData });
+
+    if (signals >= 3 && !mergedData.name) {
+      return {
+        project: 'construction',
+        result: {
+          reply:
+            'Отлично, уже можно предметно передать ваш запрос менеджеру 👍\n\n' +
+            'Подскажите, пожалуйста, как к вам можно обращаться?',
+          nextStep: 'lead_capture_name',
+          data: mergedData
+        }
+      };
+    }
+
     const aiReply = await getAIReply({
       message: text,
-      session
+      session: {
+        ...session,
+        data: mergedData
+      }
     });
 
     if (aiReply) {
@@ -187,7 +274,7 @@ async function routeMessage({ text, session, projectType }) {
         result: {
           reply: aiReply,
           nextStep: 'ai_dialog',
-          data: session?.data || {}
+          data: mergedData
         }
       };
     }
@@ -197,18 +284,41 @@ async function routeMessage({ text, session, projectType }) {
       result: {
         reply:
           'Понял вас 👍\n\n' +
-          'Могу помочь дальше по вашему объекту. Если хотите, напишите ещё пару деталей — площадь, локацию или что именно хотите рассчитать.',
+          'Если хотите, могу помочь быстро сориентироваться по вашему объекту — напишите площадь, локацию и что именно планируете делать.',
         nextStep: 'ai_dialog',
-        data: session?.data || {}
+        data: mergedData
       }
     };
   }
 
-  // ИИ для свободного входа
   if (shouldUseAI(text, session)) {
+    const mergedData = { ...currentData };
+
+    if (looksLikeSize(text)) mergedData.size = text;
+    if (looksLikeLocation(text)) mergedData.location = text;
+    if (normalized.includes('проект')) mergedData.projectStatus = text;
+
+    const signals = countLeadSignals(text, { data: mergedData });
+
+    if (signals >= 3 && !mergedData.name) {
+      return {
+        project: 'construction',
+        result: {
+          reply:
+            'Хорошо, уже есть базовое понимание по вашему объекту 👍\n\n' +
+            'Чтобы я передал запрос менеджеру, подскажите, пожалуйста, как к вам можно обращаться?',
+          nextStep: 'lead_capture_name',
+          data: mergedData
+        }
+      };
+    }
+
     const aiReply = await getAIReply({
       message: text,
-      session
+      session: {
+        ...session,
+        data: mergedData
+      }
     });
 
     if (aiReply) {
@@ -217,13 +327,12 @@ async function routeMessage({ text, session, projectType }) {
         result: {
           reply: aiReply,
           nextStep: 'ai_dialog',
-          data: session?.data || {}
+          data: mergedData
         }
       };
     }
   }
 
-  // Обычный сценарий
   return {
     project: 'construction',
     result: handleConstruction(text, session || {})
