@@ -164,10 +164,67 @@ function buildBitrixComment(data = {}, from = '') {
 
 function isFreshClosedSession(session) {
   if (!session?.closedAt) return false;
+
   const closedMs = new Date(session.closedAt).getTime();
   const nowMs = Date.now();
   const diffMinutes = (nowMs - closedMs) / (1000 * 60);
+
   return diffMinutes <= 30;
+}
+
+function buildFollowUpReply(text = '') {
+  const lowerText = String(text || '').toLowerCase().trim();
+
+  if (
+    lowerText.includes('привет') ||
+    lowerText.includes('здравствуйте') ||
+    lowerText.includes('добрый')
+  ) {
+    return (
+      'Здравствуйте 👋\n\n' +
+      'Я уже передал вашу заявку менеджеру.\n' +
+      'Он свяжется с вами в ближайшее время 👍'
+    );
+  }
+
+  if (
+    lowerText.includes('когда') ||
+    lowerText.includes('срок') ||
+    lowerText.includes('ждать') ||
+    lowerText.includes('скоро')
+  ) {
+    return (
+      'Обычно менеджер связывается в ближайшее время 👍\n\n' +
+      'Если будет задержка — напишите сюда, я дополнительно передам сообщение.'
+    );
+  }
+
+  if (
+    lowerText.includes('цена') ||
+    lowerText.includes('стоимость') ||
+    lowerText.includes('сколько')
+  ) {
+    return (
+      'По стоимости лучше точно сориентирует менеджер после уточнения деталей 👍\n\n' +
+      'Ваша заявка уже передана, он скоро свяжется с вами.'
+    );
+  }
+
+  if (
+    lowerText.includes('менеджер') ||
+    lowerText.includes('связь') ||
+    lowerText.includes('перезвон')
+  ) {
+    return (
+      'Да, конечно 👍\n\n' +
+      'Менеджер уже получил вашу заявку. Если хотите, можете здесь написать уточнение — я это тоже учту.'
+    );
+  }
+
+  return (
+    'Я на связи 👍\n\n' +
+    'Если хотите что-то уточнить по заявке — напишите сообщением, я передам это менеджеру.'
+  );
 }
 
 async function handleWebhook(req, res) {
@@ -218,13 +275,15 @@ async function handleWebhook(req, res) {
 
     const session = getSession(from);
 
-    // если клиент уже оставил заявку недавно, не создаём дубли, а отвечаем по-человечески
+    // Если заявка уже была закрыта недавно — не гоняем человека заново по сценарию
     if (isFreshClosedSession(session)) {
-      const followUpReply =
-        'Я уже передал вашу заявку менеджеру 👍\n\nЕсли хотите что-то уточнить, просто напишите сообщением — я добавлю это в комментарий.';
+      const followUpReply = buildFollowUpReply(text);
+
       await markMessageAsRead(messageId, session.project || 'construction');
+
       const delay = getTypingDelay(followUpReply);
       await new Promise((resolve) => setTimeout(resolve, delay));
+
       await sendWhatsAppMessage(from, followUpReply, session.project || 'construction');
       return;
     }
