@@ -12,6 +12,7 @@ function isGreeting(text) {
     'здравствуйте',
     'добрый день',
     'добрый вечер',
+    'салам',
     'салем',
     'hello',
     'hi'
@@ -22,8 +23,10 @@ function shouldUseAI(message, session) {
   const text = normalizeText(message);
   const step = session?.step || 'start';
 
+  // После завершённой заявки — свободные вопросы отдаём ИИ
   if (step === 'completed') return true;
 
+  // Внутри анкеты сценарий важнее ИИ
   const lockedSteps = [
     'house_stage',
     'house_location',
@@ -33,6 +36,7 @@ function shouldUseAI(message, session) {
     'house_budget',
     'house_name',
     'house_phone',
+
     'repair_object',
     'repair_location',
     'repair_area',
@@ -40,33 +44,41 @@ function shouldUseAI(message, session) {
     'repair_timing',
     'repair_name',
     'repair_phone',
+
     'service_type',
     'service_location',
     'service_scope',
     'service_materials',
     'service_name',
     'service_phone',
+
     'trust_menu',
     'after_trust',
     'after_about',
+
     'calc_type',
     'calc_request',
     'calc_name',
     'calc_phone',
+
     'manager_name',
     'manager_phone'
   ];
 
   if (lockedSteps.includes(step)) return false;
 
+  // Кнопочные/цифровые ответы — в сценарий
   if (/^[1-9]$/.test(text)) return false;
 
+  // Команды сброса — в сценарий
   if (['меню', 'назад', 'заново', 'сначала', 'стоп'].includes(text)) {
     return false;
   }
 
+  // Короткие приветствия вне completed — тоже в сценарий
   if (isGreeting(text)) return false;
 
+  // Свободные осмысленные вопросы — в ИИ
   if (text.length >= 8) return true;
 
   return false;
@@ -76,6 +88,7 @@ async function routeMessage({ text, session, projectType }) {
   const project = projectType || session?.project || 'construction';
   const normalized = normalizeText(text);
 
+  // Пока всё ведём в стройку
   if (project !== 'construction') {
     return {
       project: 'construction',
@@ -83,10 +96,10 @@ async function routeMessage({ text, session, projectType }) {
     };
   }
 
-  // После завершённой заявки:
-  // 1) команды меню/заново -> в сценарий
-  // 2) приветствие -> начинаем заново живо
-  // 3) свободный вопрос -> пробуем ИИ
+  // После completed:
+  // приветствие -> новый старт
+  // меню/назад -> в меню
+  // вопрос -> ИИ
   if (session?.step === 'completed') {
     if (['меню', 'назад', 'заново', 'сначала', 'стоп'].includes(normalized)) {
       return {
@@ -118,12 +131,21 @@ async function routeMessage({ text, session, projectType }) {
       };
     }
 
+    // fallback без сброса в сухое меню
     return {
       project: 'construction',
-      result: handleConstruction('', {})
+      result: {
+        reply:
+          'Хороший вопрос 👍\n\n' +
+          'Подскажу по строительству, ремонту или отдельным работам.\n' +
+          'Если хотите, могу сразу сориентировать по вашему объекту или помочь с предварительным расчётом.',
+        nextStep: 'completed',
+        data: session?.data || {}
+      }
     };
   }
 
+  // ИИ для свободных вопросов вне анкеты
   if (shouldUseAI(text, session)) {
     const aiReply = await getAIReply({
       message: text,
@@ -142,6 +164,7 @@ async function routeMessage({ text, session, projectType }) {
     }
   }
 
+  // Основной сценарий
   return {
     project: 'construction',
     result: handleConstruction(text, session || {})
