@@ -7,7 +7,7 @@ async function sendTelegramMessage(text) {
 
     if (!token || !chatId) {
       console.log('⚠️ Telegram не настроен');
-      return;
+      return false;
     }
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -19,8 +19,10 @@ async function sendTelegramMessage(text) {
     });
 
     console.log('✅ Telegram sent:', response.data?.ok);
+    return true;
   } catch (error) {
     console.error('❌ Telegram error:', error.response?.data || error.message);
+    return false;
   }
 }
 

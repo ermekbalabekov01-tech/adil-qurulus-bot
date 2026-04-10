@@ -39,7 +39,6 @@ function updateSession(phone, updates = {}) {
     updatedAt: new Date().toISOString()
   };
 
-  // если пользователь вышел из completed в новый диалог — разрешаем новый лид
   if (updates.step && updates.step !== 'completed') {
     next.leadSent = false;
   }
@@ -185,8 +184,6 @@ function formatLeadMessage(project, data = {}, from = '') {
 async function handleWebhook(req, res) {
   try {
     const body = req.body;
-
-    // отвечаем Meta сразу
     res.sendStatus(200);
 
     const entry = body?.entry?.[0];
