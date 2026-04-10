@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { routeMessage } = require('../router');
-const { sendTelegramMessage } = require('../services/telegram.service');
+const { sendTelegramLead } = require('../services/telegram.service');
 const { sendLeadToBitrix } = require('../services/bitrix.service');
 
 const sessions = new Map();
@@ -144,46 +144,6 @@ function getTypingDelay(reply = '') {
   return 3000;
 }
 
-function formatLeadMessage(project, data = {}, from = '') {
-  const title =
-    project === 'clinic'
-      ? '🏥 Новая заявка — Клиника'
-      : '🏗 Новая заявка — Adil Qurulus';
-
-  const lines = [title, ''];
-
-  if (from) {
-    lines.push(`WhatsApp: ${from}`);
-  }
-
-  const fields = [
-    ['direction', 'Направление'],
-    ['houseStage', 'Этап'],
-    ['location', 'Локация'],
-    ['projectStatus', 'Проект'],
-    ['size', 'Размер'],
-    ['timing', 'Сроки'],
-    ['budget', 'Бюджет'],
-    ['repairObject', 'Объект'],
-    ['repairType', 'Тип ремонта'],
-    ['area', 'Площадь'],
-    ['serviceType', 'Услуга'],
-    ['scope', 'Объём работ'],
-    ['calcType', 'Тип расчёта'],
-    ['calcRequest', 'Запрос'],
-    ['name', 'Имя'],
-    ['phone', 'Телефон']
-  ];
-
-  for (const [key, label] of fields) {
-    if (data[key]) {
-      lines.push(`${label}: ${data[key]}`);
-    }
-  }
-
-  return lines.join('\n');
-}
-
 function buildBitrixComment(data = {}, from = '') {
   const parts = [];
 
@@ -284,8 +244,10 @@ async function handleWebhook(req, res) {
       const freshSession = getSession(from);
 
       if (!freshSession.leadSent) {
-        const leadText = formatLeadMessage(project, freshSession.data || {}, from);
-        await sendTelegramMessage(leadText);
+        await sendTelegramLead({
+          whatsapp: from,
+          ...freshSession.data
+        });
 
         updateSession(from, {
           leadSent: true
