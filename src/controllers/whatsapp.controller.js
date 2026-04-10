@@ -2,6 +2,7 @@ const axios = require('axios');
 const { routeMessage } = require('../router');
 const { sendTelegramLead } = require('../services/telegram.service');
 const { sendLeadToBitrix } = require('../services/bitrix.service');
+const { scheduleFollowUps } = require('../services/followup.service');
 
 const sessions = new Map();
 
@@ -21,6 +22,7 @@ function getSession(phone) {
       updatedAt: new Date().toISOString(),
       leadSent: false,
       bitrixSent: false,
+      followUpScheduled: false,
       closedAt: null
     });
   }
@@ -275,7 +277,7 @@ async function handleWebhook(req, res) {
 
     const session = getSession(from);
 
-    // Если заявка уже была закрыта недавно — не гоняем человека заново по сценарию
+    // Если заявка уже завершена недавно — не запускаем сценарий заново
     if (isFreshClosedSession(session)) {
       const followUpReply = buildFollowUpReply(text);
 
@@ -357,6 +359,27 @@ async function handleWebhook(req, res) {
         }
       } else {
         console.log('⛔ BITRIX ALREADY SENT');
+      }
+
+      if (!finalSession.followUpScheduled) {
+        console.log('⏰ FOLLOW-UP SCHEDULING START');
+
+        try {
+          scheduleFollowUps(from, {
+            project,
+            data: finalSession.data
+          });
+
+          updateSession(from, {
+            followUpScheduled: true
+          });
+
+          console.log('✅ FOLLOW-UP SCHEDULED');
+        } catch (error) {
+          console.error('❌ FOLLOW-UP ERROR:', error.message);
+        }
+      } else {
+        console.log('⛔ FOLLOW-UP ALREADY SCHEDULED');
       }
 
       updateSession(from, {
