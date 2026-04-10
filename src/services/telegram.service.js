@@ -24,4 +24,6 @@ async function sendTelegramMessage(text) {
   }
 }
 
-module.exports = { sendTelegramMessage };
+module.exports = {
+  sendTelegramMessage
+};
