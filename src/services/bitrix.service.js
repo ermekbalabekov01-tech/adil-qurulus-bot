@@ -11,7 +11,7 @@ async function sendLeadToBitrix(data) {
 
     const url = `${webhook}crm.lead.add.json`;
 
-    const response = await axios.post(url, {
+    const payload = {
       fields: {
         TITLE: 'Заявка с WhatsApp',
         NAME: data.name || 'Не указано',
@@ -19,6 +19,14 @@ async function sendLeadToBitrix(data) {
           ? [{ VALUE: data.phone, VALUE_TYPE: 'WORK' }]
           : [],
         COMMENTS: data.comment || 'Без комментария'
+      }
+    };
+
+    console.log('📤 Bitrix payload:', JSON.stringify(payload, null, 2));
+
+    const response = await axios.post(url, payload, {
+      headers: {
+        'Content-Type': 'application/json'
       }
     });
 
