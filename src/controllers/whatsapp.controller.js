@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { routeMessage } = require('../router');
 const { sendTelegramMessage } = require('../services/telegram.service');
+const { sendLeadToBitrix } = require('../services/bitrix.service');
 
 const sessions = new Map();
 
@@ -18,7 +19,8 @@ function getSession(phone) {
       data: {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      leadSent: false
+      leadSent: false,
+      bitrixSent: false
     });
   }
 
@@ -41,6 +43,7 @@ function updateSession(phone, updates = {}) {
 
   if (updates.step && updates.step !== 'completed') {
     next.leadSent = false;
+    next.bitrixSent = false;
   }
 
   sessions.set(key, next);
@@ -133,11 +136,11 @@ function verifyWebhook(req, res) {
 }
 
 function getTypingDelay(reply = '') {
-  const length = reply.length;
+  const length = String(reply || '').length;
 
-  if (length <= 60) return 800;
-  if (length <= 160) return 1400;
-  if (length <= 300) return 2200;
+  if (length <= 80) return 900;
+  if (length <= 180) return 1500;
+  if (length <= 320) return 2300;
   return 3000;
 }
 
@@ -181,9 +184,33 @@ function formatLeadMessage(project, data = {}, from = '') {
   return lines.join('\n');
 }
 
+function buildBitrixComment(data = {}, from = '') {
+  const parts = [];
+
+  if (from) parts.push(`WhatsApp: ${from}`);
+  if (data.direction) parts.push(`Направление: ${data.direction}`);
+  if (data.houseStage) parts.push(`Этап: ${data.houseStage}`);
+  if (data.location) parts.push(`Локация: ${data.location}`);
+  if (data.projectStatus) parts.push(`Проект: ${data.projectStatus}`);
+  if (data.size) parts.push(`Размер: ${data.size}`);
+  if (data.timing) parts.push(`Сроки: ${data.timing}`);
+  if (data.budget) parts.push(`Бюджет: ${data.budget}`);
+  if (data.repairObject) parts.push(`Объект: ${data.repairObject}`);
+  if (data.repairType) parts.push(`Тип ремонта: ${data.repairType}`);
+  if (data.area) parts.push(`Площадь: ${data.area}`);
+  if (data.serviceType) parts.push(`Услуга: ${data.serviceType}`);
+  if (data.scope) parts.push(`Объём работ: ${data.scope}`);
+  if (data.calcType) parts.push(`Тип расчёта: ${data.calcType}`);
+  if (data.calcRequest) parts.push(`Запрос: ${data.calcRequest}`);
+
+  return parts.join('\n');
+}
+
 async function handleWebhook(req, res) {
   try {
     const body = req.body;
+
+    // Meta должен сразу получить 200
     res.sendStatus(200);
 
     const entry = body?.entry?.[0];
@@ -251,16 +278,34 @@ async function handleWebhook(req, res) {
     console.log('📌 NEXT STEP:', nextStep);
     console.log('📌 REPLY:', reply);
 
-    if (nextStep === 'completed' && !updatedSession.leadSent) {
-      const leadText = formatLeadMessage(project, updatedSession.data || {}, from);
-      await sendTelegramMessage(leadText);
-
-      updateSession(from, {
-        leadSent: true
-      });
-    }
-
+    // Отметить как прочитанное
     await markMessageAsRead(messageId, project);
+
+    // Если заявка завершена — отправляем в Telegram и Bitrix один раз
+    if (nextStep === 'completed') {
+      if (!updatedSession.leadSent) {
+        const leadText = formatLeadMessage(project, updatedSession.data || {}, from);
+        await sendTelegramMessage(leadText);
+
+        updateSession(from, {
+          leadSent: true
+        });
+      }
+
+      const freshSession = getSession(from);
+
+      if (!freshSession.bitrixSent) {
+        await sendLeadToBitrix({
+          name: freshSession.data?.name || 'Не указано',
+          phone: freshSession.data?.phone || from,
+          comment: buildBitrixComment(freshSession.data || {}, from)
+        });
+
+        updateSession(from, {
+          bitrixSent: true
+        });
+      }
+    }
 
     if (!reply) return;
 
