@@ -278,13 +278,13 @@ async function handleWebhook(req, res) {
     console.log('📌 NEXT STEP:', nextStep);
     console.log('📌 REPLY:', reply);
 
-    // Отметить как прочитанное
     await markMessageAsRead(messageId, project);
 
-    // Если заявка завершена — отправляем в Telegram и Bitrix один раз
     if (nextStep === 'completed') {
-      if (!updatedSession.leadSent) {
-        const leadText = formatLeadMessage(project, updatedSession.data || {}, from);
+      const freshSession = getSession(from);
+
+      if (!freshSession.leadSent) {
+        const leadText = formatLeadMessage(project, freshSession.data || {}, from);
         await sendTelegramMessage(leadText);
 
         updateSession(from, {
@@ -292,13 +292,13 @@ async function handleWebhook(req, res) {
         });
       }
 
-      const freshSession = getSession(from);
+      const finalSession = getSession(from);
 
-      if (!freshSession.bitrixSent) {
+      if (!finalSession.bitrixSent) {
         await sendLeadToBitrix({
-          name: freshSession.data?.name || 'Не указано',
-          phone: freshSession.data?.phone || from,
-          comment: buildBitrixComment(freshSession.data || {}, from)
+          name: finalSession.data?.name || 'Не указано',
+          phone: finalSession.data?.phone || from,
+          comment: buildBitrixComment(finalSession.data || {}, from)
         });
 
         updateSession(from, {
