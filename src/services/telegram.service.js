@@ -7,12 +7,28 @@ function escapeHtml(value = '') {
     .replace(/>/g, '&gt;');
 }
 
-function buildLeadText(lead = {}) {
-  const lines = ['<b>🏗 Новая заявка — Adil Qurulus</b>', ''];
+function normalizePhone(phone = '') {
+  return String(phone).replace(/\D/g, '');
+}
 
-  if (lead.whatsapp) lines.push(`📞 <b>WhatsApp:</b> ${escapeHtml(lead.whatsapp)}`);
+function buildWaLink(phone = '') {
+  const clean = normalizePhone(phone);
+  if (!clean) return '';
+  return `https://wa.me/${clean}`;
+}
+
+function buildLeadText(lead = {}) {
+  const phone = lead.phone || lead.whatsapp || '';
+  const waLink = buildWaLink(phone);
+
+  const lines = [
+    '<b>🏗 Новая заявка — Adil Qurulus</b>',
+    ''
+  ];
+
   if (lead.name) lines.push(`👤 <b>Имя:</b> ${escapeHtml(lead.name)}`);
-  if (lead.phone) lines.push(`☎️ <b>Телефон:</b> ${escapeHtml(lead.phone)}`);
+  if (phone) lines.push(`☎️ <b>Телефон:</b> ${escapeHtml(phone)}`);
+  if (lead.whatsapp) lines.push(`📞 <b>WhatsApp:</b> ${escapeHtml(lead.whatsapp)}`);
   if (lead.direction) lines.push(`📂 <b>Направление:</b> ${escapeHtml(lead.direction)}`);
   if (lead.houseStage) lines.push(`🏠 <b>Этап:</b> ${escapeHtml(lead.houseStage)}`);
   if (lead.location) lines.push(`📍 <b>Локация:</b> ${escapeHtml(lead.location)}`);
@@ -28,6 +44,11 @@ function buildLeadText(lead = {}) {
   if (lead.calcType) lines.push(`🧮 <b>Тип расчёта:</b> ${escapeHtml(lead.calcType)}`);
   if (lead.calcRequest) lines.push(`📋 <b>Запрос:</b> ${escapeHtml(lead.calcRequest)}`);
 
+  if (waLink) {
+    lines.push('');
+    lines.push(`👉 <a href="${escapeHtml(waLink)}">Написать клиенту в WhatsApp</a>`);
+  }
+
   lines.push('');
   lines.push('✅ <b>Лид зафиксирован ботом</b>');
 
@@ -39,8 +60,8 @@ async function sendTelegramMessage(text) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
 
-    console.log('📨 Telegram chat_id:', chatId);
-    console.log('📨 Telegram token exists:', !!token);
+    console.log('📨 TELEGRAM CHAT_ID:', chatId);
+    console.log('📨 TELEGRAM TOKEN EXISTS:', !!token);
 
     if (!token || !chatId) {
       console.log('⚠️ Telegram не настроен');
@@ -55,7 +76,7 @@ async function sendTelegramMessage(text) {
         chat_id: chatId,
         text,
         parse_mode: 'HTML',
-        disable_web_page_preview: true
+        disable_web_page_preview: false
       },
       {
         headers: {
@@ -64,10 +85,10 @@ async function sendTelegramMessage(text) {
       }
     );
 
-    console.log('✅ Telegram sent:', response.data?.ok);
+    console.log('✅ TELEGRAM SENT:', response.data?.ok);
     return true;
   } catch (error) {
-    console.error('❌ Telegram error:', error.response?.data || error.message);
+    console.error('❌ TELEGRAM ERROR:', error.response?.data || error.message);
     return false;
   }
 }

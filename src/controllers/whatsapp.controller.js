@@ -20,7 +20,8 @@ function getSession(phone) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       leadSent: false,
-      bitrixSent: false
+      bitrixSent: false,
+      closedAt: null
     });
   }
 
@@ -40,11 +41,6 @@ function updateSession(phone, updates = {}) {
     },
     updatedAt: new Date().toISOString()
   };
-
-  if (updates.step && updates.step !== 'completed') {
-    next.leadSent = false;
-    next.bitrixSent = false;
-  }
 
   sessions.set(key, next);
   return next;
@@ -166,11 +162,18 @@ function buildBitrixComment(data = {}, from = '') {
   return parts.join('\n');
 }
 
+function isFreshClosedSession(session) {
+  if (!session?.closedAt) return false;
+  const closedMs = new Date(session.closedAt).getTime();
+  const nowMs = Date.now();
+  const diffMinutes = (nowMs - closedMs) / (1000 * 60);
+  return diffMinutes <= 30;
+}
+
 async function handleWebhook(req, res) {
   try {
     const body = req.body;
 
-    // Meta должен сразу получить 200
     res.sendStatus(200);
 
     const entry = body?.entry?.[0];
@@ -215,6 +218,17 @@ async function handleWebhook(req, res) {
 
     const session = getSession(from);
 
+    // если клиент уже оставил заявку недавно, не создаём дубли, а отвечаем по-человечески
+    if (isFreshClosedSession(session)) {
+      const followUpReply =
+        'Я уже передал вашу заявку менеджеру 👍\n\nЕсли хотите что-то уточнить, просто напишите сообщением — я добавлю это в комментарий.';
+      await markMessageAsRead(messageId, session.project || 'construction');
+      const delay = getTypingDelay(followUpReply);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      await sendWhatsAppMessage(from, followUpReply, session.project || 'construction');
+      return;
+    }
+
     const routed = await routeMessage({
       text,
       session,
@@ -234,8 +248,6 @@ async function handleWebhook(req, res) {
       data
     });
 
-    const currentSession = getSession(from);
-
     console.log('📌 PROJECT:', project);
     console.log('📌 NEXT STEP:', nextStep);
     console.log('📌 REPLY:', reply);
@@ -243,19 +255,19 @@ async function handleWebhook(req, res) {
     await markMessageAsRead(messageId, project);
 
     if (nextStep === 'completed') {
-      console.log('🔥 ДОШЛИ ДО COMPLETED');
+      console.log('🔥 COMPLETED BLOCK START');
 
       const freshSession = getSession(from);
 
       if (!freshSession.leadSent) {
-        console.log('📨 Пытаюсь отправить в Telegram:', freshSession.data);
+        console.log('📨 TELEGRAM ABOUT TO SEND');
 
         const telegramOk = await sendTelegramLead({
           whatsapp: from,
           ...freshSession.data
         });
 
-        console.log('📨 Результат Telegram:', telegramOk);
+        console.log('📨 TELEGRAM SENT RESULT:', telegramOk);
 
         if (telegramOk) {
           updateSession(from, {
@@ -263,13 +275,13 @@ async function handleWebhook(req, res) {
           });
         }
       } else {
-        console.log('⛔ Telegram уже отправляли ранее');
+        console.log('⛔ TELEGRAM ALREADY SENT');
       }
 
       const finalSession = getSession(from);
 
       if (!finalSession.bitrixSent) {
-        console.log('📤 Пытаюсь отправить в Bitrix:', finalSession.data);
+        console.log('📤 BITRIX ABOUT TO SEND');
 
         const bitrixOk = await sendLeadToBitrix({
           name: finalSession.data?.name || 'Не указано',
@@ -277,7 +289,7 @@ async function handleWebhook(req, res) {
           comment: buildBitrixComment(finalSession.data || {}, from)
         });
 
-        console.log('📤 Результат Bitrix:', bitrixOk);
+        console.log('📤 BITRIX SENT RESULT:', bitrixOk);
 
         if (bitrixOk) {
           updateSession(from, {
@@ -285,8 +297,13 @@ async function handleWebhook(req, res) {
           });
         }
       } else {
-        console.log('⛔ Bitrix уже отправляли ранее');
+        console.log('⛔ BITRIX ALREADY SENT');
       }
+
+      updateSession(from, {
+        step: 'done',
+        closedAt: new Date().toISOString()
+      });
     }
 
     if (!reply) return;

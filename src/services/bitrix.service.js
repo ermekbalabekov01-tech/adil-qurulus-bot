@@ -1,5 +1,9 @@
 const axios = require('axios');
 
+function normalizePhone(phone = '') {
+  return String(phone).replace(/\D/g, '');
+}
+
 async function sendLeadToBitrix(data) {
   try {
     const webhook = process.env.BITRIX_WEBHOOK;
@@ -16,13 +20,13 @@ async function sendLeadToBitrix(data) {
         TITLE: 'Заявка с WhatsApp',
         NAME: data.name || 'Не указано',
         PHONE: data.phone
-          ? [{ VALUE: data.phone, VALUE_TYPE: 'WORK' }]
+          ? [{ VALUE: normalizePhone(data.phone), VALUE_TYPE: 'WORK' }]
           : [],
         COMMENTS: data.comment || 'Без комментария'
       }
     };
 
-    console.log('📤 Bitrix payload:', JSON.stringify(payload, null, 2));
+    console.log('📤 BITRIX PAYLOAD:', JSON.stringify(payload, null, 2));
 
     const response = await axios.post(url, payload, {
       headers: {
@@ -30,10 +34,10 @@ async function sendLeadToBitrix(data) {
       }
     });
 
-    console.log('✅ Лид отправлен в Bitrix:', response.data);
+    console.log('✅ BITRIX SENT:', response.data);
     return true;
   } catch (error) {
-    console.error('❌ Ошибка Bitrix:', error.response?.data || error.message);
+    console.error('❌ BITRIX ERROR:', error.response?.data || error.message);
     return false;
   }
 }
