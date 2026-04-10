@@ -13,7 +13,7 @@ function getSession(phone) {
 
   if (!sessions.has(key)) {
     sessions.set(key, {
-      project: null,
+      project: 'construction',
       step: 'start',
       data: {},
       createdAt: new Date().toISOString(),
@@ -181,6 +181,7 @@ async function handleWebhook(req, res) {
   try {
     const body = req.body;
 
+    // Meta надо ответить быстро
     res.sendStatus(200);
 
     const entry = body?.entry?.[0];
@@ -225,17 +226,17 @@ async function handleWebhook(req, res) {
 
     const session = getSession(from);
 
-    const routed = routeMessage({
+    const routed = await routeMessage({
       text,
       from,
       session,
-      projectType: session.project || null
+      projectType: session.project || 'construction'
     });
 
     const project = routed.project || 'construction';
     const result = routed.result || {};
 
-    const reply = result.reply || 'Спасибо! Ваше сообщение получено.';
+    const reply = result.reply || '';
     const nextStep = result.nextStep || session.step || 'start';
     const data = result.data || {};
 
@@ -249,6 +250,7 @@ async function handleWebhook(req, res) {
     console.log('📌 NEXT STEP:', nextStep);
     console.log('📌 REPLY:', reply);
 
+    // Отправляем лид в Telegram только один раз
     if (nextStep === 'completed' && !updatedSession.leadSent) {
       const leadText = formatLeadMessage(project, updatedSession.data || {}, from);
       await sendTelegramMessage(leadText);
@@ -259,6 +261,8 @@ async function handleWebhook(req, res) {
     }
 
     await markMessageAsRead(messageId, project);
+
+    if (!reply) return;
 
     const delay = getTypingDelay(reply);
     await new Promise((resolve) => setTimeout(resolve, delay));
