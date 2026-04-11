@@ -3,7 +3,6 @@ require("dotenv").config();
 const express = require("express");
 const pool = require("./db");
 const whatsappRoutes = require("./routes/whatsapp.routes");
-const { sendTelegramAdmin } = require("./services/telegramAdmin.service");
 
 const app = express();
 
@@ -11,10 +10,12 @@ app.use(express.json({ limit: "10mb" }));
 
 const PORT = process.env.PORT || 3000;
 
+// Главная
 app.get("/", (req, res) => {
-  res.send("🚀 Clinic Bot is running");
+  res.send("🚀 Multi Bot System Running");
 });
 
+// Проверка базы
 app.get("/db-test", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -31,15 +32,22 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
+// WhatsApp
 app.use("/", whatsappRoutes);
 
-app.listen(PORT, async () => {
+// 🚀 Запуск
+app.listen(PORT, () => {
   console.log(`🚀 Server started on port ${PORT}`);
 
-  try {
-    await sendTelegramAdmin("🚀 Telegram admin подключен и работает");
-    console.log("✅ Telegram test sent");
-  } catch (e) {
-    console.log("❌ Telegram test error:", e.message);
-  }
+  // 🔥 Telegram запускаем БЕЗ await
+  setTimeout(() => {
+    try {
+      const { sendTelegramAdmin } = require("./services/telegramAdmin.service");
+
+      sendTelegramAdmin("🚀 Telegram admin подключен");
+      console.log("✅ Telegram async started");
+    } catch (e) {
+      console.log("❌ Telegram error:", e.message);
+    }
+  }, 2000);
 });
