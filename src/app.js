@@ -4,21 +4,18 @@ const express = require("express");
 const pool = require("./db");
 const whatsappRoutes = require("./routes/whatsapp.routes");
 
-// 👉 Telegram admin (клиника)
-const { sendTelegramAdmin } = require("./services/telegramAdmin.service");
-
 const app = express();
 
 app.use(express.json({ limit: "10mb" }));
 
 const PORT = process.env.PORT || 3000;
 
-// 🔥 Главная проверка
+// Главная
 app.get("/", (req, res) => {
   res.send("🚀 Clinic Bot is running");
 });
 
-// 🔥 Проверка базы
+// Проверка базы
 app.get("/db-test", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -35,17 +32,19 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
-// 🔥 WhatsApp webhook
+// WhatsApp webhook
 app.use("/", whatsappRoutes);
 
-// 🚀 Запуск сервера
+// Запуск сервера
 app.listen(PORT, async () => {
   console.log(`🚀 Server started on port ${PORT}`);
 
-  // 👉 ТЕСТ TELEGRAM (один раз при старте)
+  // Проверка Telegram admin
   try {
+    const { sendTelegramAdmin } = require("./services/telegramAdmin.service");
     await sendTelegramAdmin("🚀 Telegram admin подключен и работает");
+    console.log("✅ Telegram test sent");
   } catch (e) {
-    console.log("Telegram test error:", e.message);
+    console.log("❌ Telegram test error:", e.message);
   }
 });

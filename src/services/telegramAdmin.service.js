@@ -26,7 +26,10 @@ async function sendTelegramAdmin(text) {
 
     console.log("✅ Telegram admin message sent");
   } catch (err) {
-    console.error("❌ Telegram admin error:", err.response?.data || err.message);
+    console.error(
+      "❌ Telegram admin error:",
+      err.response?.data || err.message
+    );
   }
 }
 
