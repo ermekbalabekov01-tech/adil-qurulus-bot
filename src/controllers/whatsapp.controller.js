@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { routeMessage } = require('../router');
-const { sendTelegramLead } = require('../services/telegram.service');
+const { sendTelegramLead, sendTelegramMessage } = require('../services/telegram.service');
 const { sendLeadToBitrix } = require('../services/bitrix.service');
 const { scheduleFollowUps } = require('../services/followup.service');
 
@@ -16,14 +16,15 @@ function getSession(phone) {
   if (!sessions.has(key)) {
     sessions.set(key, {
       project: 'construction',
+      mode: 'scenario', // scenario | support
       step: 'start',
       data: {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
       leadSent: false,
       bitrixSent: false,
       followUpScheduled: false,
-      closedAt: null
+      closedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
   }
 
@@ -39,9 +40,9 @@ function updateSession(phone, updates = {}) {
     ...updates,
     data: {
       ...(current.data || {}),
-      ...(updates.data || {})
+      ...(updates.data || {}),
     },
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
 
   sessions.set(key, next);
@@ -52,13 +53,13 @@ function getProjectConfig(project = 'construction') {
   if (project === 'clinic') {
     return {
       token: process.env.CLINIC_ACCESS_TOKEN,
-      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID
+      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID,
     };
   }
 
   return {
     token: process.env.CONSTRUCTION_ACCESS_TOKEN,
-    phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID
+    phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID,
   };
 }
 
@@ -75,13 +76,13 @@ async function markMessageAsRead(messageId, project = 'construction') {
       {
         messaging_product: 'whatsapp',
         status: 'read',
-        message_id: messageId
+        message_id: messageId,
       },
       {
         headers: {
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       }
     );
   } catch (error) {
@@ -104,13 +105,13 @@ async function sendWhatsAppMessage(to, body, project = 'construction') {
       messaging_product: 'whatsapp',
       to: normalizePhone(to),
       type: 'text',
-      text: { body }
+      text: { body },
     },
     {
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+        'Content-Type': 'application/json',
+      },
     }
   );
 }
@@ -164,69 +165,104 @@ function buildBitrixComment(data = {}, from = '') {
   return parts.join('\n');
 }
 
-function isFreshClosedSession(session) {
+function buildSupportTelegramNote(from, text, session) {
+  const lines = [
+    '🟡 Уточнение от клиента после заявки',
+    '',
+    `WhatsApp: ${from}`,
+  ];
+
+  if (session?.data?.name) lines.push(`Имя: ${session.data.name}`);
+  if (session?.data?.phone) lines.push(`Телефон: ${session.data.phone}`);
+  lines.push(`Сообщение: ${text}`);
+
+  return lines.join('\n');
+}
+
+function isRecentlyClosed(session) {
   if (!session?.closedAt) return false;
 
   const closedMs = new Date(session.closedAt).getTime();
   const nowMs = Date.now();
   const diffMinutes = (nowMs - closedMs) / (1000 * 60);
 
-  return diffMinutes <= 30;
+  return diffMinutes <= 24 * 60; // 24 часа держим в support-режиме
 }
 
-function buildFollowUpReply(text = '') {
-  const lowerText = String(text || '').toLowerCase().trim();
+function detectSupportIntent(text = '') {
+  const lower = String(text || '').toLowerCase().trim();
+
+  if (!lower) return 'generic';
 
   if (
-    lowerText.includes('привет') ||
-    lowerText.includes('здравствуйте') ||
-    lowerText.includes('добрый')
+    lower.includes('расчет') ||
+    lower.includes('расчёт') ||
+    lower.includes('фундамент') ||
+    lower.includes('смет') ||
+    lower.includes('стоим') ||
+    lower.includes('цена') ||
+    lower.includes('сколько')
   ) {
-    return (
+    return 'estimate';
+  }
+
+  if (
+    lower.includes('когда') ||
+    lower.includes('срок') ||
+    lower.includes('ждать') ||
+    lower.includes('перезвон') ||
+    lower.includes('связ') ||
+    lower.includes('менеджер')
+  ) {
+    return 'timing';
+  }
+
+  if (
+    lower.includes('привет') ||
+    lower.includes('здравств') ||
+    lower.includes('добрый')
+  ) {
+    return 'greeting';
+  }
+
+  return 'generic';
+}
+
+async function handleSupportMode({ from, text, messageId, session }) {
+  const project = session.project || 'construction';
+  const intent = detectSupportIntent(text);
+
+  await markMessageAsRead(messageId, project);
+
+  let reply = '';
+
+  if (intent === 'greeting') {
+    reply =
       'Здравствуйте 👋\n\n' +
-      'Я уже передал вашу заявку менеджеру.\n' +
-      'Он свяжется с вами в ближайшее время 👍'
-    );
+      'Ваша заявка уже у менеджера. Если хотите что-то уточнить по объекту или расчёту — напишите сообщением, я сразу передам.';
+  } else if (intent === 'timing') {
+    reply =
+      'Менеджер уже получил вашу заявку 👍\n\n' +
+      'Если вопрос срочный, я могу передать повторное уточнение прямо сейчас.';
+  } else if (intent === 'estimate') {
+    reply =
+      'Понял вас 👍\n\n' +
+      'Передаю менеджеру, что вам нужен уточнённый расчёт. Он свяжется с вами по этому вопросу.';
+  } else {
+    reply =
+      'Я на связи 👍\n\n' +
+      'Написал ваше уточнение менеджеру. Если есть ещё детали по объекту, можете отправить их сюда одним сообщением.';
   }
 
-  if (
-    lowerText.includes('когда') ||
-    lowerText.includes('срок') ||
-    lowerText.includes('ждать') ||
-    lowerText.includes('скоро')
-  ) {
-    return (
-      'Обычно менеджер связывается в ближайшее время 👍\n\n' +
-      'Если будет задержка — напишите сюда, я дополнительно передам сообщение.'
-    );
+  // Любое осмысленное сообщение после заявки передаём менеджеру в Telegram
+  if (String(text || '').trim()) {
+    const note = buildSupportTelegramNote(from, text, session);
+    await sendTelegramMessage(note);
   }
 
-  if (
-    lowerText.includes('цена') ||
-    lowerText.includes('стоимость') ||
-    lowerText.includes('сколько')
-  ) {
-    return (
-      'По стоимости лучше точно сориентирует менеджер после уточнения деталей 👍\n\n' +
-      'Ваша заявка уже передана, он скоро свяжется с вами.'
-    );
-  }
-
-  if (
-    lowerText.includes('менеджер') ||
-    lowerText.includes('связь') ||
-    lowerText.includes('перезвон')
-  ) {
-    return (
-      'Да, конечно 👍\n\n' +
-      'Менеджер уже получил вашу заявку. Если хотите, можете здесь написать уточнение — я это тоже учту.'
-    );
-  }
-
-  return (
-    'Я на связи 👍\n\n' +
-    'Если хотите что-то уточнить по заявке — напишите сообщением, я передам это менеджеру.'
-  );
+  const delay = getTypingDelay(reply);
+  await new Promise((resolve) => setTimeout(resolve, delay));
+  await sendWhatsAppMessage(from, reply, project);
 }
 
 async function handleWebhook(req, res) {
@@ -277,23 +313,26 @@ async function handleWebhook(req, res) {
 
     const session = getSession(from);
 
-    // Если заявка уже завершена недавно — не запускаем сценарий заново
-    if (isFreshClosedSession(session)) {
-      const followUpReply = buildFollowUpReply(text);
+    // Если заявка уже завершена, не крутим сценарий заново
+    if (session.mode === 'support' || isRecentlyClosed(session)) {
+      if (session.mode !== 'support') {
+        updateSession(from, { mode: 'support' });
+      }
 
-      await markMessageAsRead(messageId, session.project || 'construction');
+      await handleSupportMode({
+        from,
+        text,
+        messageId,
+        session: getSession(from),
+      });
 
-      const delay = getTypingDelay(followUpReply);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-
-      await sendWhatsAppMessage(from, followUpReply, session.project || 'construction');
       return;
     }
 
     const routed = await routeMessage({
       text,
       session,
-      projectType: session.project || 'construction'
+      projectType: session.project || 'construction',
     });
 
     const project = routed.project || 'construction';
@@ -306,7 +345,7 @@ async function handleWebhook(req, res) {
     updateSession(from, {
       project,
       step: nextStep,
-      data
+      data,
     });
 
     console.log('📌 PROJECT:', project);
@@ -321,19 +360,15 @@ async function handleWebhook(req, res) {
       const freshSession = getSession(from);
 
       if (!freshSession.leadSent) {
-        console.log('📨 TELEGRAM ABOUT TO SEND');
-
         const telegramOk = await sendTelegramLead({
           whatsapp: from,
-          ...freshSession.data
+          ...freshSession.data,
         });
 
         console.log('📨 TELEGRAM SENT RESULT:', telegramOk);
 
         if (telegramOk) {
-          updateSession(from, {
-            leadSent: true
-          });
+          updateSession(from, { leadSent: true });
         }
       } else {
         console.log('⛔ TELEGRAM ALREADY SENT');
@@ -342,49 +377,40 @@ async function handleWebhook(req, res) {
       const finalSession = getSession(from);
 
       if (!finalSession.bitrixSent) {
-        console.log('📤 BITRIX ABOUT TO SEND');
-
         const bitrixOk = await sendLeadToBitrix({
           name: finalSession.data?.name || 'Не указано',
           phone: finalSession.data?.phone || from,
-          comment: buildBitrixComment(finalSession.data || {}, from)
+          comment: buildBitrixComment(finalSession.data || {}, from),
         });
 
         console.log('📤 BITRIX SENT RESULT:', bitrixOk);
 
         if (bitrixOk) {
-          updateSession(from, {
-            bitrixSent: true
-          });
+          updateSession(from, { bitrixSent: true });
         }
       } else {
         console.log('⛔ BITRIX ALREADY SENT');
       }
 
       if (!finalSession.followUpScheduled) {
-        console.log('⏰ FOLLOW-UP SCHEDULING START');
-
         try {
           scheduleFollowUps(from, {
             project,
-            data: finalSession.data
+            data: finalSession.data,
           });
 
-          updateSession(from, {
-            followUpScheduled: true
-          });
-
+          updateSession(from, { followUpScheduled: true });
           console.log('✅ FOLLOW-UP SCHEDULED');
         } catch (error) {
           console.error('❌ FOLLOW-UP ERROR:', error.message);
         }
-      } else {
-        console.log('⛔ FOLLOW-UP ALREADY SCHEDULED');
       }
 
+      // Ключевое: после завершения переводим в support, чтобы не было круга
       updateSession(from, {
         step: 'done',
-        closedAt: new Date().toISOString()
+        mode: 'support',
+        closedAt: new Date().toISOString(),
       });
     }
 
@@ -401,5 +427,5 @@ async function handleWebhook(req, res) {
 
 module.exports = {
   verifyWebhook,
-  handleWebhook
+  handleWebhook,
 };
