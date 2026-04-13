@@ -1,117 +1,106 @@
-const axios = require('axios');
+const axios = require("axios");
+const projects = require("../config/projects.config");
 
 function normalizePhone(phone) {
-  return String(phone || '').replace(/\D/g, '');
+  return String(phone || "").replace(/\D/g, "");
 }
 
-function getProjectConfig(project = 'construction') {
-  if (project === 'clinic') {
-    return {
-      token: process.env.CLINIC_ACCESS_TOKEN,
-      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID
-    };
+async function sendWhatsAppMessageByProject(projectKey, to, body) {
+  const project = projects[projectKey];
+  if (!project?.accessToken || !project?.phoneNumberId) {
+    console.log(`⚠️ Follow-up: нет токена или phoneNumberId для проекта ${projectKey}`);
+    return false;
   }
 
-  return {
-    token: process.env.CONSTRUCTION_ACCESS_TOKEN,
-    phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID
-  };
-}
+  const url = `https://graph.facebook.com/v23.0/${project.phoneNumberId}/messages`;
 
-async function sendWhatsAppMessage(to, body, project = 'construction') {
   try {
-    const { token, phoneNumberId } = getProjectConfig(project);
-
-    if (!token || !phoneNumberId) {
-      console.log(`⚠️ Follow-up: не указан token или phoneNumberId для проекта ${project}`);
-      return false;
-    }
-
-    const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
-
     const response = await axios.post(
       url,
       {
-        messaging_product: 'whatsapp',
+        messaging_product: "whatsapp",
         to: normalizePhone(to),
-        type: 'text',
-        text: { body }
+        type: "text",
+        text: { body },
       },
       {
         headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+          Authorization: `Bearer ${project.accessToken}`,
+          "Content-Type": "application/json",
+        },
       }
     );
 
-    console.log('✅ FOLLOW-UP SENT:', response.data);
+    console.log("✅ FOLLOWUP SENT:", response.data);
     return true;
   } catch (error) {
-    console.error('❌ FOLLOW-UP ERROR:', error.response?.data || error.message);
+    console.error("❌ FOLLOWUP ERROR:", error.response?.data || error.message);
     return false;
   }
 }
 
-function buildFollowUpMessages(sessionData = {}) {
-  const data = sessionData?.data || {};
-  const name = data.name || 'друг';
+function getFollowupMessages(projectKey, lang = "ru") {
+  if (projectKey === "clinic") {
+    return {
+      first:
+        lang === "kz"
+          ? "Сәлеметсіз бе! Егер сұрағыңыз әлі де өзекті болса, осы чатқа жаза аласыз 👍"
+          : "Здравствуйте! Если ваш вопрос всё ещё актуален, можете написать сюда 👍",
+      second:
+        lang === "kz"
+          ? "Қажет болса, кез келген уақытта қайта жаза аласыз. Байланыстамыз 👍"
+          : "Если будет актуально, можете написать в любое время. Будем на связи 👍",
+    };
+  }
 
-  const direction =
-    data.direction ||
-    data.serviceType ||
-    data.calcType ||
-    'вашему проекту';
-
-  const locationText = data.location ? ` по объекту в ${data.location}` : '';
-  const sizeText = data.size ? ` (${data.size})` : '';
-
-  return [
-    `Здравствуйте, ${name} 👋
-
-Напомню по вашей заявке${locationText}${sizeText}.
-
-Менеджер уже получил запрос по ${direction}. Удобно ли вам сейчас принять звонок?`,
-
-    `Напомню о вашей заявке 👍
-
-Если хотите, можем быстрее сориентировать по стоимости и дальнейшим шагам.
-
-Для этого менеджер просто уточнит пару деталей и даст понятный ответ.`,
-
-    `Последнее сообщение по вашей заявке 👋
-
-Если вопрос ещё актуален, напишите одним словом:
-— Да
-— Актуально
-— Можно связаться
-
-И менеджер сразу возьмёт вас в работу 👍`
-  ];
+  return {
+    first:
+      lang === "kz"
+        ? "Сәлеметсіз бе! Өтініміңіз қабылданды 👍\n\nҚаласаңыз, объект бойынша қосымша мәлімет жаза аласыз."
+        : "Здравствуйте! Ваша заявка принята 👍\n\nЕсли хотите, можете написать дополнительные детали по объекту.",
+    second:
+      lang === "kz"
+        ? "Егер есептеу әлі де өзекті болса, кез келген уақытта жаза аласыз 👍"
+        : "Если расчёт ещё актуален, можете написать сюда в любое время 👍",
+  };
 }
 
-function scheduleFollowUps(phone, sessionData = {}) {
-  const project = sessionData.project || 'construction';
-  const messages = buildFollowUpMessages(sessionData);
+function scheduleFollowUps({
+  projectKey,
+  phone,
+  lang,
+  getSession,
+}) {
+  const msgs = getFollowupMessages(projectKey, lang);
 
-  console.log('⏰ START FOLLOW-UP CHAIN FOR:', phone);
-
-  // 10 минут
+  // мягкий follow-up #1 через 30 минут
   setTimeout(async () => {
-    await sendWhatsAppMessage(phone, messages[0], project);
-  }, 10 * 60 * 1000);
+    const session = getSession(phone);
+    if (!session || session.mode !== "support") return;
+    if (session.followUpCount >= 1) return;
+    if (session.userRepliedAfterCompleted) return;
 
-  // 30 минут
-  setTimeout(async () => {
-    await sendWhatsAppMessage(phone, messages[1], project);
+    const ok = await sendWhatsAppMessageByProject(projectKey, phone, msgs.first);
+    if (ok) {
+      session.followUpCount = 1;
+    }
   }, 30 * 60 * 1000);
 
-  // 2 часа
+  // мягкий follow-up #2 через 12 часов
   setTimeout(async () => {
-    await sendWhatsAppMessage(phone, messages[2], project);
-  }, 2 * 60 * 60 * 1000);
+    const session = getSession(phone);
+    if (!session || session.mode !== "support") return;
+    if (session.followUpCount >= 2) return;
+    if (session.userRepliedAfterCompleted) return;
+
+    const ok = await sendWhatsAppMessageByProject(projectKey, phone, msgs.second);
+    if (ok) {
+      session.followUpCount = 2;
+      session.mode = "silent";
+    }
+  }, 12 * 60 * 60 * 1000);
 }
 
 module.exports = {
-  scheduleFollowUps
+  scheduleFollowUps,
 };

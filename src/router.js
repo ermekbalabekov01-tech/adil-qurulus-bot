@@ -1,387 +1,270 @@
-const { handleConstruction } = require('./modules/construction/scenario');
-const { getAIReply } = require('./services/ai.service');
+const projects = require("./config/projects.config");
 
 function normalizeText(text) {
-  return (text || '').trim().toLowerCase();
+  return String(text || "").trim().toLowerCase();
 }
 
-function isGreeting(text) {
+function detectLanguage(text, projectConfig) {
   const t = normalizeText(text);
-  return [
-    'привет',
-    'здравствуйте',
-    'добрый день',
-    'добрый вечер',
-    'салам',
-    'салем',
-    'hello',
-    'hi'
-  ].includes(t);
+
+  if (projectConfig.languageButtons.kz.includes(t)) return "kz";
+  if (projectConfig.languageButtons.ru.includes(t)) return "ru";
+
+  const kzChars = /[әіңғүұқөһ]/i;
+  if (kzChars.test(t)) return "kz";
+
+  const ruChars = /[а-яё]/i;
+  if (ruChars.test(t)) return "ru";
+
+  return null;
 }
 
-function isResetCommand(text) {
+function detectIntent(text, projectConfig) {
   const t = normalizeText(text);
-  return ['меню', 'назад', 'заново', 'сначала', 'стоп'].includes(t);
-}
 
-function wantsManager(text) {
-  const t = normalizeText(text);
-  return (
-    t.includes('менеджер') ||
-    t.includes('свяжите') ||
-    t.includes('перезвоните') ||
-    t.includes('позвоните') ||
-    t.includes('давайте с менеджером') ||
-    t.includes('хочу менеджера') ||
-    t.includes('нужен менеджер')
-  );
+  for (const [intent, phrases] of Object.entries(projectConfig.intentMap || {})) {
+    if (phrases.some((phrase) => t.includes(normalizeText(phrase)))) {
+      return intent;
+    }
+  }
+
+  return null;
 }
 
 function looksLikePhone(text) {
-  const n = String(text || '').replace(/\D/g, '');
+  const n = String(text || "").replace(/\D/g, "");
   return n.length >= 10 && n.length <= 15;
 }
 
-function looksLikeSize(text) {
+function buildSupportReply(lang, projectConfig, text) {
   const t = normalizeText(text);
-  return (
-    /\d+\s*[xх]\s*\d+/.test(t) ||
-    /\d+\s*(м2|м²|кв|квадрат)/.test(t) ||
-    /^\d+\/\d+$/.test(t)
-  );
-}
-
-function looksLikeLocation(text) {
-  const t = normalizeText(text);
-  return (
-    t.includes('астана') ||
-    t.includes('косшы') ||
-    t.includes('пригород') ||
-    t.includes('рядом с астаной') ||
-    t.includes('район')
-  );
-}
-
-function extractName(text) {
-  const cleaned = String(text || '')
-    .replace(/[^\p{L}\s-]/gu, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-
-  if (!cleaned) return '';
-
-  const parts = cleaned.split(' ');
-  return parts[0] || cleaned;
-}
-
-function countLeadSignals(text, session) {
-  const t = normalizeText(text);
-  let score = 0;
+  const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
 
   if (
-    t.includes('хочу построить') ||
-    t.includes('хочу дом') ||
-    t.includes('дом построить') ||
-    t.includes('коттедж') ||
-    t.includes('дом')
-  ) score += 1;
+    t.includes("когда") ||
+    t.includes("срок") ||
+    t.includes("ждать") ||
+    t.includes("қашан")
+  ) {
+    return prompts.supportTiming;
+  }
 
   if (
-    t.includes('есть проект') ||
-    t.includes('проект есть') ||
-    t.includes('есть участок') ||
-    t.includes('участок есть')
-  ) score += 1;
+    t.includes("цена") ||
+    t.includes("стоим") ||
+    t.includes("сколько") ||
+    t.includes("баға") ||
+    t.includes("есеп")
+  ) {
+    return prompts.supportEstimate;
+  }
 
-  if (looksLikeSize(t)) score += 1;
-  if (looksLikeLocation(t)) score += 1;
-
-  if (
-    t.includes('под ключ') ||
-    t.includes('расчет') ||
-    t.includes('расчёт') ||
-    t.includes('консультац')
-  ) score += 1;
-
-  const data = session?.data || {};
-  if (data.size) score += 1;
-  if (data.location) score += 1;
-  if (data.projectStatus) score += 1;
-  if (data.direction) score += 1;
-
-  return score;
-}
-
-function shouldUseAI(message, session) {
-  const text = normalizeText(message);
-  const step = session?.step || 'start';
-
-  if (step === 'ai_dialog') return true;
-
-  const lockedSteps = [
-    'house_stage',
-    'house_location',
-    'house_project',
-    'house_size',
-    'house_timing',
-    'house_budget',
-    'house_name',
-    'house_phone',
-    'repair_object',
-    'repair_location',
-    'repair_area',
-    'repair_type',
-    'repair_timing',
-    'repair_name',
-    'repair_phone',
-    'service_type',
-    'service_location',
-    'service_scope',
-    'service_materials',
-    'service_name',
-    'service_phone',
-    'trust_menu',
-    'after_trust',
-    'after_about',
-    'calc_type',
-    'calc_request',
-    'calc_name',
-    'calc_phone',
-    'manager_name',
-    'manager_phone',
-    'lead_capture_name',
-    'lead_capture_phone'
-  ];
-
-  if (lockedSteps.includes(step)) return false;
-  if (isResetCommand(text)) return false;
-  if (/^[1-9]$/.test(text)) return false;
-  if (isGreeting(text)) return false;
-
-  return text.length >= 6;
+  return prompts.supportGeneric;
 }
 
 async function routeMessage({ text, session, projectType }) {
-  const project = projectType || session?.project || 'construction';
-  const normalized = normalizeText(text);
+  const projectKey = projectType || "construction";
+  const projectConfig = projects[projectKey];
+  const t = normalizeText(text);
+
+  if (!projectConfig) {
+    return {
+      project: "construction",
+      result: {
+        reply: "Проект не найден",
+        nextStep: "start",
+        data: session?.data || {},
+      },
+    };
+  }
+
+  const language = session?.language || detectLanguage(t, projectConfig);
+
+  // SUPPORT MODE
+  if (session?.mode === "support") {
+    return {
+      project: projectKey,
+      result: {
+        reply: buildSupportReply(language || "ru", projectConfig, t),
+        nextStep: "done",
+        mode: "support",
+        language: language || session?.language || "ru",
+        data: session?.data || {},
+      },
+    };
+  }
+
+  // START / LANGUAGE
+  if (!session?.language) {
+    const lang = detectLanguage(t, projectConfig);
+
+    if (!lang) {
+      return {
+        project: projectKey,
+        result: {
+          reply: projectConfig.welcome.mixed,
+          nextStep: "language_select",
+          mode: "scenario",
+          language: null,
+          data: session?.data || {},
+        },
+      };
+    }
+
+    return {
+      project: projectKey,
+      result: {
+        reply: projectConfig.welcome[lang],
+        nextStep: "qualification",
+        mode: "scenario",
+        language: lang,
+        data: session?.data || {},
+      },
+    };
+  }
+
+  const lang = session.language;
+  const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
   const currentData = session?.data || {};
 
-  if (project !== 'construction') {
-    return {
-      project: 'construction',
-      result: handleConstruction(text, session || {})
-    };
-  }
+  // INTENT FROM BUTTONS / TEXT
+  if (session?.step === "qualification") {
+    const intent = detectIntent(t, projectConfig);
 
-  if (isResetCommand(normalized)) {
-    return {
-      project: 'construction',
-      result: handleConstruction('меню', session || {})
-    };
-  }
-
-  // Если клиент просит менеджера — сразу идём на сбор контакта
-  if (wantsManager(normalized)) {
-    if (currentData.name && currentData.phone) {
-      return {
-        project: 'construction',
-        result: {
-          reply:
-            'Спасибо 🙌\n\n' +
-            'Заявка уже зафиксирована и передана менеджеру. Он свяжется с вами в ближайшее время.\n\n' +
-            'Если появятся вопросы — можете написать сюда 👍',
-          nextStep: 'completed',
-          data: currentData
-        }
-      };
-    }
-
-    if (currentData.name && !currentData.phone) {
-      return {
-        project: 'construction',
-        result: {
-          reply: 'Отлично 👍 Тогда напишите, пожалуйста, ваш номер телефона для связи.',
-          nextStep: 'lead_capture_phone',
-          data: currentData
-        }
-      };
-    }
+    const nextData = { ...currentData };
+    if (intent) nextData.intent = intent;
 
     return {
-      project: 'construction',
+      project: projectKey,
       result: {
-        reply:
-          'Отлично 👍 Тогда зафиксирую заявку и передаю менеджеру.\n\n' +
-          'Подскажите, пожалуйста, как к вам можно обращаться?',
-        nextStep: 'lead_capture_name',
-        data: currentData
-      }
+        reply: prompts.askProject,
+        nextStep: "ask_project",
+        mode: "scenario",
+        language: lang,
+        data: nextData,
+      },
     };
   }
 
-  // После завершённой заявки уже не крутим клиента по кругу
-  if (session?.step === 'completed') {
+  if (session?.step === "ask_project") {
     return {
-      project: 'construction',
+      project: projectKey,
       result: {
-        reply:
-          'Спасибо 🙌\n\n' +
-          'Заявка уже передана менеджеру. Он свяжется с вами в ближайшее время.\n\n' +
-          'Если появятся вопросы — можете написать здесь 👍',
-        nextStep: 'completed',
-        data: currentData
-      }
-    };
-  }
-
-  // Сбор имени
-  if (session?.step === 'lead_capture_name') {
-    const name = extractName(text);
-
-    return {
-      project: 'construction',
-      result: {
-        reply: `${name || 'Отлично'} 👍\nТеперь напишите, пожалуйста, ваш номер телефона для связи.`,
-        nextStep: 'lead_capture_phone',
+        reply: prompts.askLocation,
+        nextStep: "ask_location",
+        mode: "scenario",
+        language: lang,
         data: {
           ...currentData,
-          name: name || text
-        }
-      }
+          projectDetails: text,
+        },
+      },
     };
   }
 
-  // Сбор телефона и завершение
-  if (session?.step === 'lead_capture_phone') {
-    if (looksLikePhone(text)) {
+  if (session?.step === "ask_location") {
+    return {
+      project: projectKey,
+      result: {
+        reply: prompts.askSize,
+        nextStep: "ask_size",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          location: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_size") {
+    return {
+      project: projectKey,
+      result: {
+        reply: prompts.askTiming,
+        nextStep: "ask_timing",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          size: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_timing") {
+    return {
+      project: projectKey,
+      result: {
+        reply: prompts.askName,
+        nextStep: "ask_name",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          timing: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_name") {
+    return {
+      project: projectKey,
+      result: {
+        reply: prompts.askPhone,
+        nextStep: "ask_phone",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          name: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_phone") {
+    if (!looksLikePhone(text)) {
       return {
-        project: 'construction',
+        project: projectKey,
         result: {
-          reply:
-            'Спасибо 🙌\n\n' +
-            'Заявку зафиксировал. Передаю информацию менеджеру — он свяжется с вами, чтобы уточнить детали и подготовить предварительный расчёт.',
-          nextStep: 'completed',
-          data: {
-            ...currentData,
-            phone: text.replace(/\D/g, '')
-          }
-        }
+          reply: prompts.askPhone,
+          nextStep: "ask_phone",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
       };
     }
 
     return {
-      project: 'construction',
+      project: projectKey,
       result: {
-        reply: 'Подскажите, пожалуйста, номер телефона в удобном формате для связи.',
-        nextStep: 'lead_capture_phone',
-        data: currentData
-      }
+        reply: prompts.leadCreated,
+        nextStep: "completed",
+        mode: "support",
+        language: lang,
+        data: {
+          ...currentData,
+          phone: text,
+        },
+      },
     };
   }
 
-  // Активный AI-диалог
-  if (session?.step === 'ai_dialog') {
-    const mergedData = { ...currentData };
-
-    if (looksLikeSize(text)) mergedData.size = text;
-    if (looksLikeLocation(text)) mergedData.location = text;
-    if (normalized.includes('проект')) mergedData.projectStatus = text;
-    if (normalized.includes('дом')) mergedData.direction = 'Строительство дома / коттеджа';
-
-    const signals = countLeadSignals(text, { data: mergedData });
-
-    if (signals >= 3 && !mergedData.name) {
-      return {
-        project: 'construction',
-        result: {
-          reply:
-            'Отлично, уже можно предметно передать ваш запрос менеджеру 👍\n\n' +
-            'Подскажите, пожалуйста, как к вам можно обращаться?',
-          nextStep: 'lead_capture_name',
-          data: mergedData
-        }
-      };
-    }
-
-    const aiReply = await getAIReply({
-      message: text,
-      session: {
-        ...session,
-        data: mergedData
-      }
-    });
-
-    if (aiReply) {
-      return {
-        project: 'construction',
-        result: {
-          reply: aiReply,
-          nextStep: 'ai_dialog',
-          data: mergedData
-        }
-      };
-    }
-
-    return {
-      project: 'construction',
-      result: {
-        reply:
-          'Понял вас 👍\n\n' +
-          'Если хотите, могу помочь быстро сориентироваться по вашему объекту — напишите площадь, локацию и что именно планируете делать.',
-        nextStep: 'ai_dialog',
-        data: mergedData
-      }
-    };
-  }
-
-  // Свободный вход -> ИИ
-  if (shouldUseAI(text, session)) {
-    const mergedData = { ...currentData };
-
-    if (looksLikeSize(text)) mergedData.size = text;
-    if (looksLikeLocation(text)) mergedData.location = text;
-    if (normalized.includes('проект')) mergedData.projectStatus = text;
-    if (normalized.includes('дом')) mergedData.direction = 'Строительство дома / коттеджа';
-
-    const signals = countLeadSignals(text, { data: mergedData });
-
-    if (signals >= 3 && !mergedData.name) {
-      return {
-        project: 'construction',
-        result: {
-          reply:
-            'Хорошо, уже есть базовое понимание по вашему объекту 👍\n\n' +
-            'Чтобы я передал запрос менеджеру, подскажите, пожалуйста, как к вам можно обращаться?',
-          nextStep: 'lead_capture_name',
-          data: mergedData
-        }
-      };
-    }
-
-    const aiReply = await getAIReply({
-      message: text,
-      session: {
-        ...session,
-        data: mergedData
-      }
-    });
-
-    if (aiReply) {
-      return {
-        project: 'construction',
-        result: {
-          reply: aiReply,
-          nextStep: 'ai_dialog',
-          data: mergedData
-        }
-      };
-    }
-  }
-
-  // Обычный сценарий
+  // fallback after language set
   return {
-    project: 'construction',
-    result: handleConstruction(text, session || {})
+    project: projectKey,
+    result: {
+      reply: projectConfig.welcome[lang],
+      nextStep: "qualification",
+      mode: "scenario",
+      language: lang,
+      data: currentData,
+    },
   };
 }
 
