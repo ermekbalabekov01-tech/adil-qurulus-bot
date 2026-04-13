@@ -1,53 +1,20 @@
 const axios = require("axios");
 
-// Если у тебя сервис называется иначе, поправь путь
+// Telegram service: поддерживаем оба варианта
 let sendTelegramLead = null;
+let sendTelegramMessage = null;
+
 try {
-  ({ sendTelegramLead } = require("../services/telegram.service"));
+  const telegramService = require("../services/telegram.service");
+  sendTelegramLead = telegramService.sendTelegramLead || null;
+  sendTelegramMessage = telegramService.sendTelegramMessage || null;
 } catch (e) {
-  console.log("⚠️ telegram.service not found or sendTelegramLead missing");
+  console.log("⚠️ telegram.service not found");
 }
 
 const sessions = new Map();
 
-function getProjectConfig(phoneNumberId) {
-  const constructionId = String(process.env.CONSTRUCTION_PHONE_NUMBER_ID || "");
-  const clinicId = String(process.env.CLINIC_PHONE_NUMBER_ID || "");
-
-  if (String(phoneNumberId) === constructionId) {
-    return {
-      projectKey: "construction",
-      accessToken: process.env.CONSTRUCTION_ACCESS_TOKEN,
-      phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID,
-      verifyTokens: [
-        process.env.CONSTRUCTION_VERIFY_TOKEN,
-        process.env.VERIFY_TOKEN,
-      ].filter(Boolean),
-    };
-  }
-
-  if (String(phoneNumberId) === clinicId) {
-    return {
-      projectKey: "clinic",
-      accessToken: process.env.CLINIC_ACCESS_TOKEN,
-      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID,
-      verifyTokens: [
-        process.env.CLINIC_VERIFY_TOKEN,
-        process.env.VERIFY_TOKEN,
-      ].filter(Boolean),
-    };
-  }
-
-  return {
-    projectKey: "construction",
-    accessToken: process.env.CONSTRUCTION_ACCESS_TOKEN,
-    phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID,
-    verifyTokens: [
-      process.env.CONSTRUCTION_VERIFY_TOKEN,
-      process.env.VERIFY_TOKEN,
-    ].filter(Boolean),
-  };
-}
+/* -------------------- helpers -------------------- */
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
@@ -68,13 +35,53 @@ function delay(ms) {
 function getTypingDelay(text = "") {
   const len = String(text || "").length;
   if (len <= 80) return 900;
-  if (len <= 180) return 1400;
-  if (len <= 300) return 2000;
+  if (len <= 160) return 1400;
+  if (len <= 260) return 2000;
   return 2600;
+}
+
+function getProjectConfig(phoneNumberId) {
+  const constructionId = String(process.env.CONSTRUCTION_PHONE_NUMBER_ID || "");
+  const clinicId = String(process.env.CLINIC_PHONE_NUMBER_ID || "");
+
+  if (String(phoneNumberId) === constructionId) {
+    return {
+      projectKey: "construction",
+      accessToken: process.env.CONSTRUCTION_ACCESS_TOKEN,
+      phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID,
+    };
+  }
+
+  if (String(phoneNumberId) === clinicId) {
+    return {
+      projectKey: "clinic",
+      accessToken: process.env.CLINIC_ACCESS_TOKEN,
+      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID,
+    };
+  }
+
+  return {
+    projectKey: "construction",
+    accessToken: process.env.CONSTRUCTION_ACCESS_TOKEN,
+    phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID,
+  };
+}
+
+function detectLanguage(text) {
+  const t = cleanText(text);
+
+  if (["1", "қазақша", "kz", "казахский"].includes(t)) return "kz";
+  if (["2", "русский", "ru", "russian"].includes(t)) return "ru";
+
+  if (/[әіңғүұқөһі]/i.test(t)) return "kz";
+  if (/[а-яё]/i.test(t)) return "ru";
+
+  return "ru";
 }
 
 function isMuslimGreeting(text) {
   const t = cleanText(text);
+
   return (
     t.includes("ассаляму алейкум") ||
     t.includes("ассаламу алейкум") ||
@@ -93,6 +100,7 @@ function isMuslimGreeting(text) {
 
 function isGreeting(text) {
   const t = cleanText(text);
+
   return (
     t.includes("привет") ||
     t.includes("здравствуйте") ||
@@ -110,18 +118,17 @@ function isGreeting(text) {
 
 function isAngry(text) {
   const t = cleanText(text);
+
   return (
     t.includes("издеваешься") ||
     t.includes("я же сказал") ||
-    t.includes("что с тобой") ||
     t.includes("ты что") ||
-    t.includes("ты вообще") ||
+    t.includes("что с тобой") ||
     t.includes("не понял") ||
     t.includes("тормоз") ||
     t.includes("зачем снова") ||
-    t.includes("бесишь") ||
-    t.includes("достал") ||
-    t.includes("что за бот")
+    t.includes("что за бот") ||
+    t.includes("бесишь")
   );
 }
 
@@ -130,49 +137,43 @@ function looksLikePhone(text) {
   return n.length >= 10 && n.length <= 15;
 }
 
-function detectLanguage(text) {
+function isPricingRequest(text) {
   const t = cleanText(text);
 
-  if (["1", "қазақша", "казахский", "kz"].includes(t)) return "kz";
-  if (["2", "русский", "ru", "russian"].includes(t)) return "ru";
-
-  const kzChars = /[әіңғүұқөһі]/i;
-  if (kzChars.test(t)) return "kz";
-
-  const ruChars = /[а-яё]/i;
-  if (ruChars.test(t)) return "ru";
-
-  return null;
+  return (
+    t.includes("сколько") ||
+    t.includes("цена") ||
+    t.includes("стоимость") ||
+    t.includes("расчет") ||
+    t.includes("расчёт") ||
+    t.includes("посчитать") ||
+    t.includes("смета") ||
+    t.includes("баға") ||
+    t.includes("есеп") ||
+    t.includes("құны")
+  );
 }
 
 function detectIntent(text, projectKey) {
   const t = cleanText(text);
 
   if (projectKey === "construction") {
-    if (
-      t.includes("дом") ||
-      t.includes("үй") ||
-      t.includes("house")
-    ) return "house";
-
+    if (t.includes("дом") || t.includes("үй")) return "house";
     if (t.includes("коттедж")) return "cottage";
-
     if (
       t.includes("фундамент") ||
-      t.includes("плита") ||
       t.includes("лента") ||
+      t.includes("плита") ||
       t.includes("сваи")
-    ) return "foundation";
-
-    if (
-      t.includes("консультация") ||
-      t.includes("кеңес")
-    ) return "consultation";
+    ) {
+      return "foundation";
+    }
+    if (t.includes("консультация") || t.includes("кеңес")) return "consultation";
   }
 
   if (projectKey === "clinic") {
-    if (t.includes("запись") || t.includes("жазылу")) return "booking";
     if (t.includes("консультация") || t.includes("кеңес")) return "consultation";
+    if (t.includes("запись") || t.includes("жазылу")) return "booking";
     if (t.includes("менеджер")) return "manager";
   }
 
@@ -182,8 +183,8 @@ function detectIntent(text, projectKey) {
 function extractSize(text) {
   const raw = String(text || "").trim();
 
-  const pair = raw.match(/(\d+[.,]?\d*)\s*[xх*]\s*(\d+[.,]?\d*)/i);
-  if (pair) return `${pair[1]} x ${pair[2]}`;
+  const pair = raw.match(/(\d+[.,]?\d*)\s*[xх*\/]\s*(\d+[.,]?\d*)/i);
+  if (pair) return `${pair[1]}x${pair[2]}`;
 
   const meters = raw.match(/(\d+[.,]?\d*)\s*(м|метр|метра|метров)/i);
   if (meters) return meters[0];
@@ -191,27 +192,25 @@ function extractSize(text) {
   return null;
 }
 
-function hasEnoughConstructionData(data = {}) {
-  return Boolean(
-    data.intent &&
-    (data.size || data.projectDetails || data.location)
-  );
+function hasUsefulData(data = {}) {
+  return Boolean(data.intent || data.size || data.location || data.projectDetails);
 }
+
+/* -------------------- session -------------------- */
 
 function getSession(projectKey, phone) {
   const key = `${projectKey}:${normalizePhone(phone)}`;
 
   if (!sessions.has(key)) {
     sessions.set(key, {
-      projectKey,
       step: "start",
       mode: "scenario", // scenario | support | silent
       language: null,
-      data: {},
       leadSent: false,
       followUpCount: 0,
       followUpScheduled: false,
       userRepliedAfterCompleted: false,
+      data: {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -238,159 +237,148 @@ function updateSession(projectKey, phone, patch = {}) {
   return next;
 }
 
-function getGreetingReply(projectKey, lang, text) {
+/* -------------------- texts -------------------- */
+
+function getWelcome(projectKey, lang, text) {
   if (projectKey === "construction") {
     if (isMuslimGreeting(text)) {
-      if (lang === "kz") {
-        return (
-          "Уағалейкум ассалам 🤝\n\n" +
-          "Adil Qurulus байланыста.\n" +
-          "Үй, коттедж немесе фундамент бойынша не керек екенін қысқаша жазыңыз — бірден нақты бағыт берем."
-        );
-      }
-
-      return (
-        "Ва алейкум ассалам 🤝\n\n" +
-        "Adil Qurulus на связи.\n" +
-        "Напишите коротко, что вас интересует: дом, коттедж или фундамент — и я сразу сориентирую."
-      );
+      return lang === "kz"
+        ? "Уағалейкум ассалам 🤝\n\nAdil Qurulus компаниясы.\nАстанада үй, коттедж және фундамент саламыз.\n\nҚысқаша жазыңыз, не керек — әрі қарай нақты бағыт беремін."
+        : "Ва алейкум ассалам 🤝\n\nКомпания Adil Qurulus.\nСтроим дома, коттеджи и фундамент в Астане.\n\nНапишите, что вам нужно — дальше сориентирую по делу.";
     }
 
-    if (lang === "kz") {
-      return (
-        "Сәлеметсіз бе! 👋\n\n" +
-        "Adil Qurulus байланыста.\n" +
-        "Үй, коттедж немесе фундамент керек болса, қысқаша жаза аласыз — бірден нақтылап берем."
-      );
-    }
-
-    return (
-      "Здравствуйте! 👋\n\n" +
-      "Adil Qurulus на связи.\n" +
-      "Напишите коротко, что вас интересует: дом, коттедж, фундамент или консультация."
-    );
+    return lang === "kz"
+      ? "Сәлеметсіз бе! 👋\n\nAdil Qurulus компаниясы.\nАстанада үй, коттедж және фундамент саламыз.\n\nҚысқаша жазыңыз, не керек — әрі қарай нақты бағыт беремін."
+      : "Здравствуйте! 👋\n\nКомпания Adil Qurulus.\nСтроим дома, коттеджи и фундамент в Астане.\n\nНапишите, что вам нужно — дальше сориентирую по делу.";
   }
 
   if (isMuslimGreeting(text)) {
     return lang === "kz"
-      ? "Уағалейкум ассалам 🤝\n\nЖаза беріңіз, көмектесемін."
+      ? "Уағалейкум ассалам 🤝\n\nҚысқаша жаза аласыз, көмектесемін."
       : "Ва алейкум ассалам 🤝\n\nНапишите, пожалуйста, чем могу помочь.";
   }
 
   return lang === "kz"
-    ? "Сәлеметсіз бе! 👋\n\nЖаза беріңіз, көмектесемін."
+    ? "Сәлеметсіз бе! 👋\n\nҚысқаша жаза аласыз, көмектесемін."
     : "Здравствуйте! 👋\n\nНапишите, пожалуйста, чем могу помочь.";
 }
 
 function getDeEscalationReply(lang) {
-  if (lang === "kz") {
-    return (
-      "Түсіндім, артық сұрақпен шаршатпаймын 🙏\n\n" +
-      "Қысқаша жазыңыз:\n" +
-      "1) не салу керек\n" +
-      "2) өлшемі немесе ауданы\n" +
-      "3) қай қала/аудан\n\n" +
-      "Сосын бірден нақты жауап берем."
-    );
-  }
-
-  return (
-    "Понял вас, лишними вопросами перегружать не буду 🙏\n\n" +
-    "Напишите коротко:\n" +
-    "1) что нужно построить\n" +
-    "2) размер или площадь\n" +
-    "3) город/район\n\n" +
-    "И я сразу дам конкретику."
-  );
+  return lang === "kz"
+    ? "Түсіндім 🙏 Артық сұрақпен шаршатпаймын. Қысқаша жазыңыз: не салу керек, өлшемі және қай жерде."
+    : "Понял вас 🙏 Лишними вопросами перегружать не буду. Напишите коротко: что нужно построить, размеры и где объект.";
 }
 
-function getLanguageChoiceReply() {
-  return (
-    "Сәлеметсіз бе! 👋\nЗдравствуйте! 👋\n\n" +
-    "Тілді таңдаңыз / Выберите язык:\n" +
-    "1️⃣ Қазақша\n" +
-    "2️⃣ Русский"
-  );
-}
-
-function getMenuReply(projectKey, lang) {
+function getAskNeedReply(projectKey, lang) {
   if (projectKey === "construction") {
     return lang === "kz"
-      ? "Қай бағыт қызықтырады?\n1️⃣ Үй салу\n2️⃣ Коттедж салу\n3️⃣ Фундамент есебі\n4️⃣ Кеңес алу"
-      : "Что вас интересует?\n1️⃣ Строительство дома\n2️⃣ Строительство коттеджа\n3️⃣ Расчёт фундамента\n4️⃣ Консультация";
+      ? "Жақсы 👍 Енді қысқаша жазыңыз: үй, коттедж, фундамент немесе қандай жұмыс керек?"
+      : "Хорошо 👍 Теперь коротко напишите: дом, коттедж, фундамент или какой именно вид работ нужен?";
   }
 
   return lang === "kz"
-    ? "Қай бағыт қызықтырады?\n1️⃣ Кеңес\n2️⃣ Процедуралар\n3️⃣ Жазылу\n4️⃣ Менеджер"
-    : "Что вас интересует?\n1️⃣ Консультация\n2️⃣ Процедуры\n3️⃣ Запись\n4️⃣ Менеджер";
+    ? "Қай бағыт қызықтырады?"
+    : "Что вас интересует?";
 }
 
-function getSupportReply(projectKey, lang, text) {
+function getAskSizeReply(lang) {
+  return lang === "kz"
+    ? "Түсіндім 👍 Объектінің шамамен өлшемін немесе ауданын жазыңыз."
+    : "Понял 👍 Напишите примерные размеры объекта или площадь.";
+}
+
+function getAskLocationReply(lang, sizeText) {
+  return lang === "kz"
+    ? `Жақсы. ${sizeText ? `${sizeText} 👍\n\n` : ""}Құрылыс қай қалада немесе ауданда болады?`
+    : `Хорошо. ${sizeText ? `${sizeText} 👍\n\n` : ""}В каком городе или районе планируется строительство?`;
+}
+
+function getAskPhoneForManagerReply(lang) {
+  return lang === "kz"
+    ? "Нақты есеп пен дұрыс ұсыныс беру үшін менеджерді қосамын. Байланыс үшін номеріңізді жазыңыз."
+    : "Чтобы подключить менеджера и дать вам точный расчёт без ошибок, напишите ваш номер для связи.";
+}
+
+function getLeadCreatedReply(lang) {
+  return lang === "kz"
+    ? "Рақмет 🙌 Өтініміңіз менеджерге жіберілді. Жақын арада сізбен байланысады.\n\nҚажет болса, осы чатқа қосымша ақпарат жаза аласыз."
+    : "Спасибо 🙌 Ваша заявка передана менеджеру. Он свяжется с вами в ближайшее время.\n\nЕсли хотите, можете написать сюда дополнительные детали по объекту.";
+}
+
+function getSupportReply(lang, text) {
   const t = cleanText(text);
 
-  if (projectKey === "construction") {
-    if (
-      t.includes("сколько") ||
-      t.includes("цена") ||
-      t.includes("стоим") ||
-      t.includes("баға") ||
-      t.includes("есеп")
-    ) {
-      return lang === "kz"
-        ? "Түсіндім 👍 Нақты есеп керек екенін менеджерге жіберемін."
-        : "Понял 👍 Передаю менеджеру, что вам нужен уточнённый расчёт.";
-    }
-
-    if (
-      t.includes("когда") ||
-      t.includes("ждать") ||
-      t.includes("срок") ||
-      t.includes("қашан")
-    ) {
-      return lang === "kz"
-        ? "Менеджер өтінімді алды 👍 Егер шұғыл болса, осында қосымша жаза аласыз."
-        : "Менеджер уже получил заявку 👍 Если вопрос срочный, можете написать сюда подробнее.";
-    }
-
+  if (isPricingRequest(t)) {
     return lang === "kz"
-      ? "Мен байланыстамын 👍 Қосымша ақпарат болса, осы чатқа жаза аласыз — менеджерге жеткіземін."
-      : "Я на связи 👍 Если есть дополнительные детали по объекту, можете написать сюда — передам менеджеру.";
+      ? "Түсіндім 👍 Нақты есеп керек екенін менеджерге қайта жеткіземін."
+      : "Понял 👍 Передаю менеджеру, что вам нужен точный расчёт.";
+  }
+
+  if (
+    t.includes("когда") ||
+    t.includes("ждать") ||
+    t.includes("срок") ||
+    t.includes("қашан")
+  ) {
+    return lang === "kz"
+      ? "Менеджер өтінімді алды 👍 Қажет болса, осы чатқа қосымша мәлімет жаза аласыз."
+      : "Менеджер уже получил заявку 👍 Если нужно, можете написать сюда дополнительные детали.";
   }
 
   return lang === "kz"
-    ? "Мен байланыстамын 👍"
-    : "Я на связи 👍";
+    ? "Қосымша ақпарат болса, осы чатқа жаза аласыз 👍"
+    : "Если есть дополнительные детали, можете написать сюда 👍";
 }
 
-function buildLeadPayload(projectKey, from, session) {
-  return {
-    whatsapp: from,
-    phone: session.data?.phone || from,
-    name: session.data?.name || "Не указано",
-    direction: session.data?.intent || "Не указано",
-    location: session.data?.location || "Не указано",
-    size: session.data?.size || "Не указано",
-    timing: session.data?.timing || "Не указано",
-    projectKey,
-  };
+/* -------------------- telegram -------------------- */
+
+function buildLeadText(projectKey, from, session) {
+  const data = session.data || {};
+
+  return [
+    `🔥 НОВАЯ ЗАЯВКА`,
+    `Проект: ${projectKey}`,
+    `WhatsApp: ${from}`,
+    `Имя: ${data.name || "Не указано"}`,
+    `Телефон: ${data.phone || from}`,
+    `Интерес: ${data.intent || "Не указано"}`,
+    `Размер: ${data.size || "Не указано"}`,
+    `Локация: ${data.location || "Не указано"}`,
+    `Детали: ${data.projectDetails || "Не указано"}`,
+  ].join("\n");
 }
 
 async function sendTelegramLeadNow(projectKey, from, session) {
-  if (!sendTelegramLead || typeof sendTelegramLead !== "function") {
-    console.log("⚠️ sendTelegramLead function not available");
-    return false;
-  }
-
   try {
-    const payload = buildLeadPayload(projectKey, from, session);
-    const result = await sendTelegramLead(payload);
-    console.log("📨 TELEGRAM LEAD SENT:", result);
-    return true;
+    if (sendTelegramLead && typeof sendTelegramLead === "function") {
+      await sendTelegramLead({
+        whatsapp: from,
+        phone: session.data?.phone || from,
+        name: session.data?.name || "Не указано",
+        direction: session.data?.intent || "Не указано",
+        location: session.data?.location || "Не указано",
+        size: session.data?.size || "Не указано",
+        details: session.data?.projectDetails || "Не указано",
+        projectKey,
+      });
+
+      return true;
+    }
+
+    if (sendTelegramMessage && typeof sendTelegramMessage === "function") {
+      await sendTelegramMessage(buildLeadText(projectKey, from, session));
+      return true;
+    }
+
+    console.log("⚠️ Telegram function not available");
+    return false;
   } catch (error) {
     console.log("❌ TELEGRAM SEND ERROR:", error.message);
     return false;
   }
 }
+
+/* -------------------- whatsapp api -------------------- */
 
 async function sendWhatsAppMessage({ accessToken, phoneNumberId, to, body }) {
   const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
@@ -433,13 +421,13 @@ async function markMessageAsRead({ accessToken, phoneNumberId, messageId }) {
   );
 }
 
+/* -------------------- follow-ups -------------------- */
+
 function scheduleSoftFollowUps({ projectKey, from, lang }) {
-  // follow-up #1 через 30 минут
   setTimeout(async () => {
     try {
       const session = getSession(projectKey, from);
-      if (!session) return;
-      if (session.mode !== "support") return;
+      if (!session || session.mode !== "support") return;
       if (session.userRepliedAfterCompleted) return;
       if (session.followUpCount >= 1) return;
 
@@ -463,17 +451,15 @@ function scheduleSoftFollowUps({ projectKey, from, lang }) {
 
       updateSession(projectKey, from, { followUpCount: 1 });
       console.log("✅ FOLLOW-UP #1 SENT");
-    } catch (e) {
-      console.log("❌ FOLLOW-UP #1 ERROR:", e.message);
+    } catch (error) {
+      console.log("❌ FOLLOW-UP #1 ERROR:", error.message);
     }
   }, 30 * 60 * 1000);
 
-  // follow-up #2 через 12 часов
   setTimeout(async () => {
     try {
       const session = getSession(projectKey, from);
-      if (!session) return;
-      if (session.mode !== "support") return;
+      if (!session || session.mode !== "support") return;
       if (session.userRepliedAfterCompleted) return;
       if (session.followUpCount >= 2) return;
 
@@ -485,8 +471,8 @@ function scheduleSoftFollowUps({ projectKey, from, lang }) {
 
       const text =
         lang === "kz"
-          ? "Егер есептеу әлі де өзекті болса, кез келген уақытта жаза аласыз 👍"
-          : "Если расчёт ещё актуален, можете написать сюда в любое время 👍";
+          ? "Егер өтінім әлі де өзекті болса, кез келген уақытта жаза аласыз 👍"
+          : "Если заявка ещё актуальна, можете написать сюда в любое время 👍";
 
       await sendWhatsAppMessage({
         accessToken: project.accessToken,
@@ -501,11 +487,13 @@ function scheduleSoftFollowUps({ projectKey, from, lang }) {
       });
 
       console.log("✅ FOLLOW-UP #2 SENT");
-    } catch (e) {
-      console.log("❌ FOLLOW-UP #2 ERROR:", e.message);
+    } catch (error) {
+      console.log("❌ FOLLOW-UP #2 ERROR:", error.message);
     }
   }, 12 * 60 * 60 * 1000);
 }
+
+/* -------------------- webhook handlers -------------------- */
 
 async function verifyWebhook(req, res) {
   try {
@@ -582,7 +570,7 @@ async function handleWebhook(req, res) {
     console.log("📩 TEXT:", text);
 
     const session = getSession(projectKey, from);
-    const detectedLang = session.language || detectLanguage(text) || "ru";
+    const lang = session.language || detectLanguage(text);
 
     await markMessageAsRead({
       accessToken,
@@ -590,95 +578,29 @@ async function handleWebhook(req, res) {
       messageId,
     });
 
-    // если клиент ответил после заявки — отключаем follow-up
+    // После заявки: только мягкий support
     if (session.mode === "support" || session.mode === "silent") {
       updateSession(projectKey, from, {
         userRepliedAfterCompleted: true,
         mode: "support",
       });
 
-      const supportReply = getSupportReply(projectKey, session.language || detectedLang, text);
+      const reply = getSupportReply(lang, text);
 
-      await delay(getTypingDelay(supportReply));
+      await delay(getTypingDelay(reply));
       await sendWhatsAppMessage({
         accessToken,
         phoneNumberId: currentPhoneNumberId,
         to: from,
-        body: supportReply,
+        body: reply,
       });
 
       return;
     }
 
-    // раздражение
+    // Анти-агрессия
     if (isAngry(text)) {
-      const reply = getDeEscalationReply(session.language || detectedLang);
-
-      await delay(getTypingDelay(reply));
-      await sendWhatsAppMessage({
-        accessToken,
-        phoneNumberId: currentPhoneNumberId,
-        to: from,
-        body: reply,
-      });
-
-      updateSession(projectKey, from, {
-        language: session.language || detectedLang,
-        step: "qualification",
-      });
-
-      return;
-    }
-
-    // приветствия
-    if ((isGreeting(text) || isMuslimGreeting(text)) && session.step === "start") {
-      const lang = session.language || detectedLang;
-      const reply = getGreetingReply(projectKey, lang, text);
-
-      await delay(getTypingDelay(reply));
-      await sendWhatsAppMessage({
-        accessToken,
-        phoneNumberId: currentPhoneNumberId,
-        to: from,
-        body: reply,
-      });
-
-      updateSession(projectKey, from, {
-        language: lang,
-        step: "qualification",
-      });
-
-      return;
-    }
-
-    // если язык ещё не выбран
-    if (!session.language && !isGreeting(text) && !isMuslimGreeting(text)) {
-      const lang = detectLanguage(text);
-
-      if (!lang) {
-        const reply = getLanguageChoiceReply();
-
-        await delay(getTypingDelay(reply));
-        await sendWhatsAppMessage({
-          accessToken,
-          phoneNumberId: currentPhoneNumberId,
-          to: from,
-          body: reply,
-        });
-
-        updateSession(projectKey, from, {
-          step: "language_select",
-        });
-
-        return;
-      }
-
-      updateSession(projectKey, from, {
-        language: lang,
-        step: "qualification",
-      });
-
-      const reply = getMenuReply(projectKey, lang);
+      const reply = getDeEscalationReply(lang);
 
       await delay(getTypingDelay(reply));
       await sendWhatsAppMessage({
@@ -691,24 +613,55 @@ async function handleWebhook(req, res) {
       return;
     }
 
-    // language_select / qualification
-    if (session.step === "start" || session.step === "language_select" || session.step === "qualification") {
-      const lang = session.language || detectLanguage(text) || "ru";
+    // Первый вход
+    if (session.step === "start") {
+      const reply = getWelcome(projectKey, lang, text);
+
+      await delay(getTypingDelay(reply));
+      await sendWhatsAppMessage({
+        accessToken,
+        phoneNumberId: currentPhoneNumberId,
+        to: from,
+        body: reply,
+      });
+
+      // Если клиент уже в первом сообщении пишет предмет разговора
       const intent = detectIntent(text, projectKey);
+      const size = extractSize(text);
 
       updateSession(projectKey, from, {
         language: lang,
-        step: "ask_project",
+        step: intent || size ? "ask_location_or_phone" : "ask_need",
         data: {
           ...(session.data || {}),
           intent: intent || session.data?.intent || null,
+          size: size || session.data?.size || null,
+          projectDetails: !isGreeting(text) && !isMuslimGreeting(text) ? text : session.data?.projectDetails || null,
         },
       });
 
-      const reply =
-        lang === "kz"
-          ? "Жақсы 👍 Енді қысқаша жазыңыз: не салу керек және қандай өлшем шамалас?"
-          : "Хорошо 👍 Теперь коротко напишите: что нужно построить и какие примерно размеры?";
+      return;
+    }
+
+    // Что нужно
+    if (session.step === "ask_need") {
+      const intent = detectIntent(text, projectKey);
+      const size = extractSize(text);
+
+      const nextData = {
+        ...(session.data || {}),
+        intent: intent || session.data?.intent || text,
+        size: size || session.data?.size || null,
+        projectDetails: text,
+      };
+
+      updateSession(projectKey, from, {
+        language: lang,
+        step: size ? "ask_location_or_phone" : "ask_size",
+        data: nextData,
+      });
+
+      const reply = size ? getAskLocationReply(lang, size) : getAskSizeReply(lang);
 
       await delay(getTypingDelay(reply));
       await sendWhatsAppMessage({
@@ -721,29 +674,64 @@ async function handleWebhook(req, res) {
       return;
     }
 
-    // ask_project
-    if (session.step === "ask_project") {
-      const lang = session.language || detectedLang;
-      const nextData = {
-        ...(session.data || {}),
-        projectDetails: text,
-      };
+    // Размер
+    if (session.step === "ask_size") {
+      const size = extractSize(text) || text;
 
-      const size = extractSize(text);
-      if (size) nextData.size = size;
+      updateSession(projectKey, from, {
+        language: lang,
+        step: "ask_location_or_phone",
+        data: {
+          ...(session.data || {}),
+          size,
+        },
+      });
 
-      // если уже достаточно данных — быстрее к номеру
-      if (hasEnoughConstructionData(nextData) && projectKey === "construction") {
-        updateSession(projectKey, from, {
+      const reply = getAskLocationReply(lang, size);
+
+      await delay(getTypingDelay(reply));
+      await sendWhatsAppMessage({
+        accessToken,
+        phoneNumberId: currentPhoneNumberId,
+        to: from,
+        body: reply,
+      });
+
+      return;
+    }
+
+    // Город / район или сразу номер
+    if (session.step === "ask_location_or_phone") {
+      // Если клиент вместо города сразу дал номер
+      if (looksLikePhone(text)) {
+        const updated = updateSession(projectKey, from, {
           language: lang,
-          step: "ask_phone",
-          data: nextData,
+          step: "done",
+          mode: "support",
+          data: {
+            ...(session.data || {}),
+            phone: text,
+          },
         });
 
-        const reply =
-          lang === "kz"
-            ? "Жақсы 👍 Негізгі ақпарат жеткілікті. Нақты есептеп, менеджер байланысуы үшін номеріңізді жазыңыз."
-            : "Отлично 👍 Основной информации уже достаточно. Чтобы точно рассчитать и передать менеджеру, напишите ваш номер.";
+        if (!updated.leadSent) {
+          const ok = await sendTelegramLeadNow(projectKey, from, updated);
+          if (ok) {
+            updateSession(projectKey, from, { leadSent: true });
+          }
+        }
+
+        const latest = getSession(projectKey, from);
+        if (!latest.followUpScheduled) {
+          scheduleSoftFollowUps({ projectKey, from, lang });
+          updateSession(projectKey, from, {
+            followUpScheduled: true,
+            followUpCount: 0,
+            userRepliedAfterCompleted: false,
+          });
+        }
+
+        const reply = getLeadCreatedReply(lang);
 
         await delay(getTypingDelay(reply));
         await sendWhatsAppMessage({
@@ -756,134 +744,41 @@ async function handleWebhook(req, res) {
         return;
       }
 
-      updateSession(projectKey, from, {
-        language: lang,
-        step: "ask_location",
-        data: nextData,
-      });
+      // Если клиент просит цену / расчёт — сразу на менеджера, без допроса
+      if (isPricingRequest(text) || isPricingRequest(session.data?.projectDetails || "")) {
+        updateSession(projectKey, from, {
+          language: lang,
+          step: "ask_phone",
+          data: {
+            ...(session.data || {}),
+            location: text,
+          },
+        });
 
-      const reply =
-        lang === "kz"
-          ? "Түсіндім. Құрылыс қай қалада немесе ауданда болады?"
-          : "Понял. В каком городе или районе планируется строительство?";
+        const reply = getAskPhoneForManagerReply(lang);
 
-      await delay(getTypingDelay(reply));
-      await sendWhatsAppMessage({
-        accessToken,
-        phoneNumberId: currentPhoneNumberId,
-        to: from,
-        body: reply,
-      });
+        await delay(getTypingDelay(reply));
+        await sendWhatsAppMessage({
+          accessToken,
+          phoneNumberId: currentPhoneNumberId,
+          to: from,
+          body: reply,
+        });
 
-      return;
-    }
+        return;
+      }
 
-    // ask_location
-    if (session.step === "ask_location") {
-      const lang = session.language || detectedLang;
-      const nextData = {
-        ...(session.data || {}),
-        location: text,
-      };
-
-      updateSession(projectKey, from, {
-        language: lang,
-        step: "ask_size",
-        data: nextData,
-      });
-
-      const reply =
-        lang === "kz"
-          ? "Жақсы. Енді объектінің өлшемін немесе шамамен ауданын жазыңыз."
-          : "Хорошо. Теперь напишите размеры объекта или примерную площадь.";
-
-      await delay(getTypingDelay(reply));
-      await sendWhatsAppMessage({
-        accessToken,
-        phoneNumberId: currentPhoneNumberId,
-        to: from,
-        body: reply,
-      });
-
-      return;
-    }
-
-    // ask_size
-    if (session.step === "ask_size") {
-      const lang = session.language || detectedLang;
-      const nextData = {
-        ...(session.data || {}),
-        size: extractSize(text) || text,
-      };
-
-      updateSession(projectKey, from, {
-        language: lang,
-        step: "ask_timing",
-        data: nextData,
-      });
-
-      const reply =
-        lang === "kz"
-          ? "Құрылысты қашан бастауды жоспарлап отырсыз?"
-          : "Когда планируете начинать строительство?";
-
-      await delay(getTypingDelay(reply));
-      await sendWhatsAppMessage({
-        accessToken,
-        phoneNumberId: currentPhoneNumberId,
-        to: from,
-        body: reply,
-      });
-
-      return;
-    }
-
-    // ask_timing
-    if (session.step === "ask_timing") {
-      const lang = session.language || detectedLang;
-
-      updateSession(projectKey, from, {
-        language: lang,
-        step: "ask_name",
-        data: {
-          ...(session.data || {}),
-          timing: text,
-        },
-      });
-
-      const reply =
-        lang === "kz"
-          ? "Өзіңізді қалай атаймыз?"
-          : "Как к вам можно обращаться?";
-
-      await delay(getTypingDelay(reply));
-      await sendWhatsAppMessage({
-        accessToken,
-        phoneNumberId: currentPhoneNumberId,
-        to: from,
-        body: reply,
-      });
-
-      return;
-    }
-
-    // ask_name
-    if (session.step === "ask_name") {
-      const lang = session.language || detectedLang;
-
+      // Обычный сценарий: сохраняем город и просим номер
       updateSession(projectKey, from, {
         language: lang,
         step: "ask_phone",
         data: {
           ...(session.data || {}),
-          name: text,
+          location: text,
         },
       });
 
-      const reply =
-        lang === "kz"
-          ? "Рақмет. Байланыс үшін номеріңізді жазыңыз."
-          : "Спасибо. Напишите, пожалуйста, ваш номер для связи.";
+      const reply = getAskPhoneForManagerReply(lang);
 
       await delay(getTypingDelay(reply));
       await sendWhatsAppMessage({
@@ -896,10 +791,8 @@ async function handleWebhook(req, res) {
       return;
     }
 
-    // ask_phone
+    // Номер
     if (session.step === "ask_phone") {
-      const lang = session.language || detectedLang;
-
       if (!looksLikePhone(text)) {
         const reply =
           lang === "kz"
@@ -919,7 +812,7 @@ async function handleWebhook(req, res) {
 
       const updated = updateSession(projectKey, from, {
         language: lang,
-        step: "completed",
+        step: "done",
         mode: "support",
         data: {
           ...(session.data || {}),
@@ -927,7 +820,7 @@ async function handleWebhook(req, res) {
         },
       });
 
-      // СРАЗУ отправляем в Telegram
+      // СРАЗУ Telegram
       if (!updated.leadSent) {
         const ok = await sendTelegramLeadNow(projectKey, from, updated);
         if (ok) {
@@ -935,15 +828,10 @@ async function handleWebhook(req, res) {
         }
       }
 
-      // ставим мягкие follow-up только один раз
+      // Мягкий follow-up
       const latest = getSession(projectKey, from);
       if (!latest.followUpScheduled) {
-        scheduleSoftFollowUps({
-          projectKey,
-          from,
-          lang,
-        });
-
+        scheduleSoftFollowUps({ projectKey, from, lang });
         updateSession(projectKey, from, {
           followUpScheduled: true,
           followUpCount: 0,
@@ -951,10 +839,7 @@ async function handleWebhook(req, res) {
         });
       }
 
-      const reply =
-        lang === "kz"
-          ? "Рақмет 🙌 Өтініміңіз менеджерге жіберілді. Жақын арада сізбен байланысады.\n\nҚажет болса, осы чатқа қосымша ақпарат жаза аласыз."
-          : "Спасибо 🙌 Ваша заявка сразу передана менеджеру. Он свяжется с вами в ближайшее время.\n\nЕсли хотите, можете написать сюда дополнительные детали по объекту.";
+      const reply = getLeadCreatedReply(lang);
 
       await delay(getTypingDelay(reply));
       await sendWhatsAppMessage({
@@ -968,10 +853,7 @@ async function handleWebhook(req, res) {
     }
 
     // fallback
-    const fallback =
-      detectedLang === "kz"
-        ? "Түсіндім 👍 Қысқаша жазыңыз, не керек: үй, коттедж, фундамент немесе кеңес."
-        : "Понял 👍 Напишите коротко, что нужно: дом, коттедж, фундамент или консультация.";
+    const fallback = getAskNeedReply(projectKey, lang);
 
     await delay(getTypingDelay(fallback));
     await sendWhatsAppMessage({
