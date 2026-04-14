@@ -1,4 +1,6 @@
 const axios = require("axios");
+const { sendTelegramLead } = require("../services/telegram.service");
+const { sendLeadToBitrix } = require("../services/bitrix.service");
 
 const sessions = new Map();
 
@@ -152,7 +154,9 @@ function detectIntent(text, projectKey) {
       t.includes("лента") ||
       t.includes("плита") ||
       t.includes("сваи")
-    ) return "foundation";
+    ) {
+      return "foundation";
+    }
     if (t.includes("консультация") || t.includes("кеңес")) return "consultation";
   }
 
@@ -196,6 +200,35 @@ function normalizeIntentLabel(intent, lang) {
   return intent || "объект";
 }
 
+function isYes(text) {
+  const t = cleanText(text);
+  return [
+    "да",
+    "есть",
+    "имеется",
+    "да есть",
+    "бар",
+    "ия",
+    "иә",
+    "бар иә",
+    "имеется проект",
+  ].includes(t);
+}
+
+function isNo(text) {
+  const t = cleanText(text);
+  return [
+    "нет",
+    "нету",
+    "нет проекта",
+    "жоқ",
+    "жок",
+    "жоба жоқ",
+    "с нуля",
+    "с нуля начинаем",
+  ].includes(t);
+}
+
 /* ---------------- session ---------------- */
 
 function getSession(projectKey, phone) {
@@ -206,7 +239,8 @@ function getSession(projectKey, phone) {
       step: "start",
       mode: "scenario", // scenario | support
       language: null,
-      data: {},
+     data: {},
+      leadSent: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -342,6 +376,48 @@ function getAngryReply(lang) {
   return lang === "kz"
     ? "Түсіндім 🙏 Артық сұрақпен шаршатпаймын. Қысқаша жазыңыз: не салу керек, өлшемі және қай жерде."
     : "Понял вас 🙏 Лишними вопросами перегружать не буду. Напишите коротко: что нужно построить, размеры и где объект.";
+}
+
+/* ---------------- integrations ---------------- */
+
+async function finalizeLead({ projectKey, from, session }) {
+  const lead = {
+    name: session.data?.name || "Не указано",
+    phone: session.data?.phone || from,
+    whatsapp: from,
+    direction: session.data?.intent || "Не указано",
+    location: session.data?.location || "Не указано",
+    projectStatus: session.data?.hasProject || "Не указано",
+    size: session.data?.size || "Не указано",
+    calcRequest:
+      isPricingIntent(session.data?.projectDetails || "") ? "Запросил расчёт" : "",
+  };
+
+  const bitrixComment = [
+    `Направление: ${lead.direction}`,
+    `Локация: ${lead.location}`,
+    `Проект: ${lead.projectStatus}`,
+    `Размер: ${lead.size}`,
+    lead.calcRequest ? `Статус: ${lead.calcRequest}` : "",
+    `WhatsApp: ${lead.whatsapp}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const telegramOk = await sendTelegramLead(lead);
+  const bitrixOk = await sendLeadToBitrix({
+    name: lead.name,
+    phone: lead.phone,
+    comment: bitrixComment,
+  });
+
+  console.log("📦 FINALIZE LEAD:", {
+    telegramOk,
+    bitrixOk,
+    lead,
+  });
+
+  return { telegramOk, bitrixOk };
 }
 
 /* ---------------- whatsapp api ---------------- */
@@ -563,7 +639,7 @@ async function handleWebhook(req, res) {
       const size = extractSize(text);
 
       updateSession(projectKey, from, {
-        step: size ? "ask_location" : intent ? "ask_project" : "ask_project",
+        step: size ? "ask_location" : "ask_project",
         data: {
           ...(session.data || {}),
           intent: intent || text,
@@ -603,11 +679,15 @@ async function handleWebhook(req, res) {
       const lang = session.language || "ru";
       const size = extractSize(text);
 
+      let projectStatus = text;
+      if (isYes(text)) projectStatus = lang === "kz" ? "жоба бар" : "проект есть";
+      if (isNo(text)) projectStatus = lang === "kz" ? "нөлден бастау" : "с нуля";
+
       updateSession(projectKey, from, {
         step: size ? "ask_location" : "ask_size",
         data: {
           ...(session.data || {}),
-          hasProject: text,
+          hasProject: projectStatus,
           size: size || session.data?.size || null,
         },
       });
@@ -688,17 +768,17 @@ async function handleWebhook(req, res) {
         },
       });
 
-      const detailsText =
+      const reply =
         isPricingIntent(session.data?.projectDetails || "") || isPricingIntent(text)
           ? getPricingHandoffReply(lang)
           : getAskPhoneReply(lang);
 
-      await delay(getTypingDelay(detailsText));
+      await delay(getTypingDelay(reply));
       await sendWhatsAppMessage({
         accessToken,
         phoneNumberId: currentPhoneNumberId,
         to: from,
-        body: detailsText,
+        body: reply,
       });
 
       return;
@@ -725,13 +805,19 @@ async function handleWebhook(req, res) {
         return;
       }
 
-      updateSession(projectKey, from, {
+      const updated = updateSession(projectKey, from, {
         step: "done",
         mode: "support",
         data: {
           ...(session.data || {}),
           phone: text,
         },
+      });
+
+      await finalizeLead({
+        projectKey,
+        from,
+        session: updated,
       });
 
       const reply = getDoneReply(lang);
