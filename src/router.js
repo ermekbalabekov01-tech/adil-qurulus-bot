@@ -209,73 +209,276 @@ function buildSupportReply(lang, projectConfig, text) {
   return prompts.supportGeneric;
 }
 
-async function routeMessage({ text, session, projectType }) {
-  const projectKey = projectType || "construction";
-  const projectConfig = projects[projectKey];
+async function routeClinicMessage({ text, session, projectConfig, lang }) {
+  const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
+  const currentData = session?.data || {};
+  const t = normalizeText(text);
 
-  if (!projectConfig) {
+  if (!session?.language) {
+    const detected = detectLanguage(t, projectConfig);
+
+    if (!detected) {
+      return {
+        project: "clinic",
+        result: {
+          reply: projectConfig.welcome.mixed,
+          nextStep: "language_select",
+          mode: "scenario",
+          language: null,
+          data: currentData,
+        },
+      };
+    }
+
     return {
-      project: "construction",
+      project: "clinic",
       result: {
-        reply: "Проект не найден",
-        nextStep: "start",
-        data: session?.data || {},
+        reply: projectConfig.welcome[detected],
+        nextStep: "ask_city",
+        mode: "scenario",
+        language: detected,
+        data: currentData,
       },
     };
   }
 
-  const t = normalizeText(text);
-  const language = session?.language || detectLanguage(t, projectConfig);
-  const lang = language || "ru";
-
   if (session?.mode === "support") {
     return {
-      project: projectKey,
+      project: "clinic",
       result: {
         reply: buildSupportReply(lang, projectConfig, text),
         nextStep: "done",
         mode: "support",
         language: lang,
-        data: session?.data || {},
+        data: currentData,
+      },
+    };
+  }
+
+  if (session?.step === "language_select") {
+    return {
+      project: "clinic",
+      result: {
+        reply: projectConfig.welcome[lang],
+        nextStep: "ask_city",
+        mode: "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
+
+  if (session?.step === "start" || session?.step === "ask_city") {
+    return {
+      project: "clinic",
+      result: {
+        reply: prompts.askLocation,
+        nextStep: "ask_service",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          city: text,
+          location: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_service") {
+    return {
+      project: "clinic",
+      result: {
+        reply: prompts.askSize,
+        nextStep: "ask_photo",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          service: text,
+          projectDetails: text,
+          intent: detectIntent(text, projectConfig) || currentData.intent,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_photo") {
+    return {
+      project: "clinic",
+      result: {
+        reply: prompts.askTiming,
+        nextStep: "ask_day",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          photoStatus: text,
+          size: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_day") {
+    return {
+      project: "clinic",
+      result: {
+        reply: prompts.askName,
+        nextStep: "ask_time",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          visitDay: text,
+          timing: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_time") {
+    return {
+      project: "clinic",
+      result: {
+        reply: prompts.askProject,
+        nextStep: "ask_name_age",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          visitTime: text,
+          preferredTime: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_name_age") {
+    return {
+      project: "clinic",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Рақмет 🌸\n\nЕнді байланыс үшін телефон нөміріңізді жазыңызшы."
+            : "Спасибо 🌸\n\nТеперь напишите, пожалуйста, ваш номер телефона для подтверждения записи.",
+        nextStep: "ask_phone",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          name: text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "ask_phone") {
+    if (!looksLikePhone(text)) {
+      return {
+        project: "clinic",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Телефон нөмірін ыңғайлы форматта жазыңызшы."
+              : "Пожалуйста, напишите номер телефона в удобном формате.",
+          nextStep: "ask_phone",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
+
+    const day = currentData.visitDay || "Не указано";
+    const time = currentData.visitTime || currentData.preferredTime || "Не указано";
+    const city = currentData.city || currentData.location || "Не указано";
+    const service = currentData.service || currentData.projectDetails || "Не указано";
+
+    const finalReply =
+      lang === "kz"
+        ? `Рақмет 🌿\n\nСізді алдын ала консультацияға жаздым:\n• Қала: ${city}\n• Процедура: ${service}\n• Күні: ${day}\n• Уақыты: ${time}\n\nАдминистратор жақын арада растау үшін хабарласады.`
+        : `Спасибо 🌿\n\nПредварительно записала вас на консультацию:\n• Город: ${city}\n• Услуга: ${service}\n• Дата: ${day}\n• Время: ${time}\n\nАдминистратор свяжется с вами в ближайшее время для подтверждения записи.`;
+
+    return {
+      project: "clinic",
+      result: {
+        reply: finalReply,
+        nextStep: "completed",
+        mode: "support",
+        language: lang,
+        data: {
+          ...currentData,
+          phone: text,
+        },
+      },
+    };
+  }
+
+  return {
+    project: "clinic",
+    result: {
+      reply: projectConfig.welcome[lang],
+      nextStep: "ask_city",
+      mode: "scenario",
+      language: lang,
+      data: currentData,
+    },
+  };
+}
+
+async function routeConstructionMessage({ text, session, projectConfig, lang }) {
+  const t = normalizeText(text);
+  const currentData = session?.data || {};
+
+  if (session?.mode === "support") {
+    return {
+      project: "construction",
+      result: {
+        reply: buildSupportReply(lang, projectConfig, text),
+        nextStep: "done",
+        mode: "support",
+        language: lang,
+        data: currentData,
       },
     };
   }
 
   if (isAngry(text)) {
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: getDeEscalationReply(lang),
         nextStep: session?.step || "qualification",
         mode: session?.mode || "scenario",
         language: lang,
-        data: session?.data || {},
+        data: currentData,
       },
     };
   }
 
-  if (isMuslimGreeting(text) && projectKey === "construction" && !containsUsefulConstructionData(text)) {
+  if (isMuslimGreeting(text) && !containsUsefulConstructionData(text)) {
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: getSellerGreetingReply(lang, true),
         nextStep: session?.step === "start" ? "qualification" : session?.step || "qualification",
         mode: session?.mode || "scenario",
         language: lang,
-        data: session?.data || {},
+        data: currentData,
       },
     };
   }
 
-  if (isGreeting(text) && projectKey === "construction" && !containsUsefulConstructionData(text)) {
+  if (isGreeting(text) && !containsUsefulConstructionData(text)) {
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: getSellerGreetingReply(lang, false),
         nextStep: session?.step === "start" ? "qualification" : session?.step || "qualification",
         mode: session?.mode || "scenario",
         language: lang,
-        data: session?.data || {},
+        data: currentData,
       },
     };
   }
@@ -285,31 +488,30 @@ async function routeMessage({ text, session, projectType }) {
 
     if (!detected) {
       return {
-        project: projectKey,
+        project: "construction",
         result: {
           reply: projectConfig.welcome.mixed,
           nextStep: "language_select",
           mode: "scenario",
           language: null,
-          data: session?.data || {},
+          data: currentData,
         },
       };
     }
 
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: projectConfig.welcome[detected],
         nextStep: "qualification",
         mode: "scenario",
         language: detected,
-        data: session?.data || {},
+        data: currentData,
       },
     };
   }
 
   const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
-  const currentData = session?.data || {};
 
   if (session?.step === "qualification" || session?.step === "language_select") {
     const intent = detectIntent(t, projectConfig);
@@ -317,7 +519,7 @@ async function routeMessage({ text, session, projectType }) {
     if (intent) nextData.intent = intent;
 
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: prompts.askProject,
         nextStep: "ask_project",
@@ -330,7 +532,7 @@ async function routeMessage({ text, session, projectType }) {
 
   if (session?.step === "ask_project") {
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: prompts.askLocation,
         nextStep: "ask_location",
@@ -346,7 +548,7 @@ async function routeMessage({ text, session, projectType }) {
 
   if (session?.step === "ask_location") {
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: prompts.askSize,
         nextStep: "ask_size",
@@ -362,7 +564,7 @@ async function routeMessage({ text, session, projectType }) {
 
   if (session?.step === "ask_size") {
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: prompts.askTiming,
         nextStep: "ask_timing",
@@ -378,7 +580,7 @@ async function routeMessage({ text, session, projectType }) {
 
   if (session?.step === "ask_timing") {
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: prompts.askName,
         nextStep: "ask_name",
@@ -394,7 +596,7 @@ async function routeMessage({ text, session, projectType }) {
 
   if (session?.step === "ask_name") {
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: prompts.askPhone,
         nextStep: "ask_phone",
@@ -411,7 +613,7 @@ async function routeMessage({ text, session, projectType }) {
   if (session?.step === "ask_phone") {
     if (!looksLikePhone(text)) {
       return {
-        project: projectKey,
+        project: "construction",
         result: {
           reply: prompts.askPhone,
           nextStep: "ask_phone",
@@ -423,7 +625,7 @@ async function routeMessage({ text, session, projectType }) {
     }
 
     return {
-      project: projectKey,
+      project: "construction",
       result: {
         reply: prompts.leadCreated,
         nextStep: "completed",
@@ -438,7 +640,7 @@ async function routeMessage({ text, session, projectType }) {
   }
 
   return {
-    project: projectKey,
+    project: "construction",
     result: {
       reply: projectConfig.welcome[lang],
       nextStep: "qualification",
@@ -447,6 +649,41 @@ async function routeMessage({ text, session, projectType }) {
       data: currentData,
     },
   };
+}
+
+async function routeMessage({ text, session, projectType }) {
+  const projectKey = projectType || "construction";
+  const projectConfig = projects[projectKey];
+
+  if (!projectConfig) {
+    return {
+      project: "construction",
+      result: {
+        reply: "Проект не найден",
+        nextStep: "start",
+        data: session?.data || {},
+      },
+    };
+  }
+
+  const language = session?.language || detectLanguage(text, projectConfig);
+  const lang = language || "ru";
+
+  if (projectKey === "clinic") {
+    return routeClinicMessage({
+      text,
+      session,
+      projectConfig,
+      lang,
+    });
+  }
+
+  return routeConstructionMessage({
+    text,
+    session,
+    projectConfig,
+    lang,
+  });
 }
 
 module.exports = {
