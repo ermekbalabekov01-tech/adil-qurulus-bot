@@ -1,461 +1,367 @@
-const projects = require("./config/projects.config");
+const axios = require("axios");
+const { routeMessage } = require("../router");
+const { sendTelegramLead } = require("../services/telegram.service");
+const { sendClinicTelegramLead } = require("../services/telegramClinic.service");
+const { sendLeadToBitrix } = require("../services/bitrix.service");
 
-function normalizeText(text) {
-  return String(text || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[ʼ'`]/g, "")
-    .replace(/\s+/g, " ");
+const sessions = new Map();
+
+function normalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
 }
 
-function cleanGreetingText(text) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/[^a-zа-яёәіңғүұқөһі\s]/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function detectLanguage(text, projectConfig) {
-  const t = normalizeText(text);
-
-  if (projectConfig?.languageButtons?.kz?.includes(t)) return "kz";
-  if (projectConfig?.languageButtons?.ru?.includes(t)) return "ru";
-
-  const kzChars = /[әіңғүұқөһі]/i;
-  if (kzChars.test(t)) return "kz";
-
-  const ruChars = /[а-яё]/i;
-  if (ruChars.test(t)) return "ru";
-
-  return null;
+function getTypingDelay(text = "") {
+  const len = String(text || "").length;
+  if (len <= 80) return 900;
+  if (len <= 170) return 1400;
+  if (len <= 320) return 2200;
+  return 2800;
 }
 
-function isGreeting(text) {
-  const t = cleanGreetingText(text);
+function getProjectConfig(phoneNumberId) {
+  const constructionId = String(process.env.CONSTRUCTION_PHONE_NUMBER_ID || "");
+  const clinicId = String(process.env.CLINIC_PHONE_NUMBER_ID || "");
 
-  return [
-    "привет",
-    "здравствуйте",
-    "здраствуйте",
-    "добрый день",
-    "добрый вечер",
-    "доброе утро",
-    "салам",
-    "сәлем",
-    "салем",
-    "hello",
-    "hi",
-    "hey",
-  ].some((g) => t.includes(g));
-}
-
-function isMuslimGreeting(text) {
-  const t = cleanGreetingText(text);
-
-  return (
-    t.includes("ассаляму алейкум") ||
-    t.includes("ассаламу алейкум") ||
-    t.includes("ассалам алейкум") ||
-    t.includes("ассаламагалейкум") ||
-    t.includes("ассаламуагалейкум") ||
-    t.includes("ас саляму алейкум") ||
-    t.includes("асаламу алейкум") ||
-    t.includes("асаламалейкум") ||
-    t.includes("салам алейкум") ||
-    t.includes("саламалейкум") ||
-    t.includes("assalamu alaikum") ||
-    t.includes("assalamu alaykum") ||
-    t.includes("salam alaikum")
-  );
-}
-
-function isAngry(text) {
-  const t = normalizeText(text);
-
-  return (
-    t.includes("издеваешься") ||
-    t.includes("ты что") ||
-    t.includes("что с тобой") ||
-    t.includes("ты вообще") ||
-    t.includes("не понял") ||
-    t.includes("бесишь") ||
-    t.includes("достал") ||
-    t.includes("задолбал") ||
-    t.includes("зачем снова") ||
-    t.includes("я же сказал") ||
-    t.includes("тормоз") ||
-    t.includes("что за бот") ||
-    t.includes("что за фигня")
-  );
-}
-
-function looksLikePhone(text) {
-  const n = String(text || "").replace(/\D/g, "");
-  return n.length >= 10 && n.length <= 15;
-}
-
-function containsUsefulConstructionData(text) {
-  const t = normalizeText(text);
-
-  return (
-    /\d/.test(t) ||
-    t.includes("фундамент") ||
-    t.includes("дом") ||
-    t.includes("коттедж") ||
-    t.includes("баня") ||
-    t.includes("үй") ||
-    t.includes("плита") ||
-    t.includes("лента") ||
-    t.includes("сваи") ||
-    t.includes("размер") ||
-    t.includes("размеры") ||
-    t.includes("материал") ||
-    t.includes("газоблок") ||
-    t.includes("кирпич") ||
-    t.includes("бетон")
-  );
-}
-
-function detectIntent(text, projectConfig) {
-  const t = normalizeText(text);
-
-  for (const [intent, phrases] of Object.entries(projectConfig.intentMap || {})) {
-    if (phrases.some((phrase) => t.includes(normalizeText(phrase)))) {
-      return intent;
-    }
-  }
-
-  return null;
-}
-
-function getSellerGreetingReply(lang = "ru", isIslamic = false) {
-  if (lang === "kz") {
-    if (isIslamic) {
-      return (
-        "Уағалейкум ассалам 🤝\n\n" +
-        "Adil Qurulus байланыста.\n" +
-        "Үй, коттедж немесе фундамент бойынша не керек екенін қысқаша жазыңыз — бірден нақты бағыт берем."
-      );
-    }
-
-    return (
-      "Сәлеметсіз бе! 👋\n\n" +
-      "Adil Qurulus байланыста.\n" +
-      "Үй, коттедж немесе фундамент керек болса, қысқаша жаза аласыз — бірден нақтылап берем."
-    );
-  }
-
-  if (isIslamic) {
-    return (
-      "Ва алейкум ассалам 🤝\n\n" +
-      "Adil Qurulus на связи.\n" +
-      "Напишите коротко, что вас интересует: дом, коттедж или фундамент — и я сразу сориентирую."
-    );
-  }
-
-  return (
-    "Здравствуйте! 👋\n\n" +
-    "Adil Qurulus на связи.\n" +
-    "Напишите коротко, что вас интересует: дом, коттедж или фундамент — и я сразу сориентирую."
-  );
-}
-
-function getDeEscalationReply(lang = "ru") {
-  if (lang === "kz") {
-    return (
-      "Түсіндім, артық сұрақпен шаршатпаймын 🙏\n\n" +
-      "Қысқаша жазыңыз:\n" +
-      "1) не салу керек\n" +
-      "2) өлшемі немесе ауданы\n" +
-      "3) қай қала/аудан\n\n" +
-      "Сосын бірден нақты жауап берем."
-    );
-  }
-
-  return (
-    "Понял вас, лишними вопросами перегружать не буду 🙏\n\n" +
-    "Напишите коротко:\n" +
-    "1) что нужно построить\n" +
-    "2) размер или площадь\n" +
-    "3) город/район\n\n" +
-    "И я сразу дам конкретику."
-  );
-}
-
-function buildSupportReply(lang, projectConfig, text) {
-  const t = normalizeText(text);
-  const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
-
-  if (
-    t.includes("когда") ||
-    t.includes("срок") ||
-    t.includes("ждать") ||
-    t.includes("қашан")
-  ) {
-    return prompts.supportTiming;
-  }
-
-  if (
-    t.includes("цена") ||
-    t.includes("стоим") ||
-    t.includes("сколько") ||
-    t.includes("баға") ||
-    t.includes("есеп")
-  ) {
-    return prompts.supportEstimate;
-  }
-
-  return prompts.supportGeneric;
-}
-
-async function routeMessage({ text, session, projectType }) {
-  const projectKey = projectType || "construction";
-  const projectConfig = projects[projectKey];
-
-  if (!projectConfig) {
+  if (String(phoneNumberId) === constructionId) {
     return {
-      project: "construction",
-      result: {
-        reply: "Проект не найден",
-        nextStep: "start",
-        data: session?.data || {},
-      },
+      projectKey: "construction",
+      accessToken: process.env.CONSTRUCTION_ACCESS_TOKEN,
+      phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID,
     };
   }
 
-  const t = normalizeText(text);
-  const language = session?.language || detectLanguage(t, projectConfig);
-  const lang = language || "ru";
-
-  // support mode after lead
-  if (session?.mode === "support") {
+  if (String(phoneNumberId) === clinicId) {
     return {
-      project: projectKey,
-      result: {
-        reply: buildSupportReply(lang, projectConfig, text),
-        nextStep: "done",
-        mode: "support",
-        language: lang,
-        data: session?.data || {},
-      },
+      projectKey: "clinic",
+      accessToken: process.env.CLINIC_ACCESS_TOKEN,
+      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID,
     };
   }
 
-  // anti aggression
-  if (isAngry(text)) {
+  const fallbackProject = process.env.DEFAULT_PROJECT || "construction";
+
+  if (fallbackProject === "clinic") {
     return {
-      project: projectKey,
-      result: {
-        reply: getDeEscalationReply(lang),
-        nextStep: session?.step || "qualification",
-        mode: session?.mode || "scenario",
-        language: lang,
-        data: session?.data || {},
-      },
+      projectKey: "clinic",
+      accessToken: process.env.CLINIC_ACCESS_TOKEN,
+      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID,
     };
   }
 
-  // muslim greeting
-  if (isMuslimGreeting(text) && !containsUsefulConstructionData(text)) {
-    return {
-      project: projectKey,
-      result: {
-        reply: getSellerGreetingReply(lang, true),
-        nextStep: session?.step === "start" ? "qualification" : session?.step || "qualification",
-        mode: session?.mode || "scenario",
-        language: lang,
-        data: session?.data || {},
-      },
-    };
-  }
-
-  // normal greeting
-  if (isGreeting(text) && !containsUsefulConstructionData(text)) {
-    return {
-      project: projectKey,
-      result: {
-        reply: getSellerGreetingReply(lang, false),
-        nextStep: session?.step === "start" ? "qualification" : session?.step || "qualification",
-        mode: session?.mode || "scenario",
-        language: lang,
-        data: session?.data || {},
-      },
-    };
-  }
-
-  // first message if language not chosen
-  if (!session?.language) {
-    const detected = detectLanguage(t, projectConfig);
-
-    if (!detected) {
-      return {
-        project: projectKey,
-        result: {
-          reply: projectConfig.welcome.mixed,
-          nextStep: "language_select",
-          mode: "scenario",
-          language: null,
-          data: session?.data || {},
-        },
-      };
-    }
-
-    return {
-      project: projectKey,
-      result: {
-        reply: projectConfig.welcome[detected],
-        nextStep: "qualification",
-        mode: "scenario",
-        language: detected,
-        data: session?.data || {},
-      },
-    };
-  }
-
-  const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
-  const currentData = session?.data || {};
-
-  // qualification
-  if (session?.step === "qualification" || session?.step === "language_select") {
-    const intent = detectIntent(t, projectConfig);
-    const nextData = { ...currentData };
-    if (intent) nextData.intent = intent;
-
-    return {
-      project: projectKey,
-      result: {
-        reply: prompts.askProject,
-        nextStep: "ask_project",
-        mode: "scenario",
-        language: lang,
-        data: nextData,
-      },
-    };
-  }
-
-  if (session?.step === "ask_project") {
-    return {
-      project: projectKey,
-      result: {
-        reply: prompts.askLocation,
-        nextStep: "ask_location",
-        mode: "scenario",
-        language: lang,
-        data: {
-          ...currentData,
-          projectDetails: text,
-        },
-      },
-    };
-  }
-
-  if (session?.step === "ask_location") {
-    return {
-      project: projectKey,
-      result: {
-        reply: prompts.askSize,
-        nextStep: "ask_size",
-        mode: "scenario",
-        language: lang,
-        data: {
-          ...currentData,
-          location: text,
-        },
-      },
-    };
-  }
-
-  if (session?.step === "ask_size") {
-    return {
-      project: projectKey,
-      result: {
-        reply: prompts.askTiming,
-        nextStep: "ask_timing",
-        mode: "scenario",
-        language: lang,
-        data: {
-          ...currentData,
-          size: text,
-        },
-      },
-    };
-  }
-
-  if (session?.step === "ask_timing") {
-    return {
-      project: projectKey,
-      result: {
-        reply: prompts.askName,
-        nextStep: "ask_name",
-        mode: "scenario",
-        language: lang,
-        data: {
-          ...currentData,
-          timing: text,
-        },
-      },
-    };
-  }
-
-  if (session?.step === "ask_name") {
-    return {
-      project: projectKey,
-      result: {
-        reply: prompts.askPhone,
-        nextStep: "ask_phone",
-        mode: "scenario",
-        language: lang,
-        data: {
-          ...currentData,
-          name: text,
-        },
-      },
-    };
-  }
-
-  if (session?.step === "ask_phone") {
-    if (!looksLikePhone(text)) {
-      return {
-        project: projectKey,
-        result: {
-          reply: prompts.askPhone,
-          nextStep: "ask_phone",
-          mode: "scenario",
-          language: lang,
-          data: currentData,
-        },
-      };
-    }
-
-    return {
-      project: projectKey,
-      result: {
-        reply: prompts.leadCreated,
-        nextStep: "completed",
-        mode: "support",
-        language: lang,
-        data: {
-          ...currentData,
-          phone: text,
-        },
-      },
-    };
-  }
-
-  // fallback
   return {
-    project: projectKey,
-    result: {
-      reply: projectConfig.welcome[lang],
-      nextStep: "qualification",
-      mode: "scenario",
-      language: lang,
-      data: currentData,
-    },
+    projectKey: "construction",
+    accessToken: process.env.CONSTRUCTION_ACCESS_TOKEN,
+    phoneNumberId: process.env.CONSTRUCTION_PHONE_NUMBER_ID,
   };
 }
 
+function getSession(projectKey, phone) {
+  const key = `${projectKey}:${normalizePhone(phone)}`;
+
+  if (!sessions.has(key)) {
+    sessions.set(key, {
+      step: "start",
+      mode: "scenario",
+      language: null,
+      data: {},
+      leadSent: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  return sessions.get(key);
+}
+
+function updateSession(projectKey, phone, patch = {}) {
+  const key = `${projectKey}:${normalizePhone(phone)}`;
+  const current = getSession(projectKey, phone);
+
+  const next = {
+    ...current,
+    ...patch,
+    data: {
+      ...(current.data || {}),
+      ...(patch.data || {}),
+    },
+    updatedAt: new Date().toISOString(),
+  };
+
+  sessions.set(key, next);
+  return next;
+}
+
+function isPricingIntent(text) {
+  const t = String(text || "").trim().toLowerCase();
+
+  return (
+    t.includes("сколько") ||
+    t.includes("стоимость") ||
+    t.includes("цена") ||
+    t.includes("расчет") ||
+    t.includes("расчёт") ||
+    t.includes("посчитать") ||
+    t.includes("смета") ||
+    t.includes("баға") ||
+    t.includes("есеп") ||
+    t.includes("құны")
+  );
+}
+
+async function sendWhatsAppMessage({ accessToken, phoneNumberId, to, body }) {
+  const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
+
+  await axios.post(
+    url,
+    {
+      messaging_product: "whatsapp",
+      to: normalizePhone(to),
+      type: "text",
+      text: { body },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+}
+
+async function markMessageAsRead({ accessToken, phoneNumberId, messageId }) {
+  if (!messageId) return;
+
+  const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
+
+  await axios.post(
+    url,
+    {
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: messageId,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+}
+
+async function finalizeLead({ projectKey, from, session }) {
+  if (projectKey === "clinic") {
+    const lead = {
+      name: session.data?.name || "Не указано",
+      phone: session.data?.phone || from,
+      whatsapp: from,
+      city: session.data?.location || session.data?.city || "Не указано",
+      service:
+        session.data?.projectDetails ||
+        session.data?.service ||
+        session.data?.serviceTitle ||
+        session.data?.intent ||
+        "Не указано",
+      hadConsultation: session.data?.hadConsultation || "Не указано",
+      photoStatus: session.data?.size || session.data?.photoStatus || "Не указано",
+      visitTime: session.data?.timing || session.data?.visitTime || "Не указано",
+    };
+
+    const telegramOk = await sendClinicTelegramLead(lead);
+
+    console.log("📦 FINALIZE CLINIC LEAD:", {
+      telegramOk,
+      lead,
+    });
+
+    return { telegramOk, bitrixOk: true };
+  }
+
+  const lead = {
+    name: session.data?.name || "Не указано",
+    phone: session.data?.phone || from,
+    whatsapp: from,
+    direction: session.data?.intent || "Не указано",
+    location: session.data?.location || "Не указано",
+    projectStatus: session.data?.projectDetails || "Не указано",
+    size: session.data?.size || "Не указано",
+    calcRequest:
+      isPricingIntent(session.data?.projectDetails || "") ? "Запросил расчёт" : "",
+  };
+
+  const bitrixComment = [
+    `Направление: ${lead.direction}`,
+    `Локация: ${lead.location}`,
+    `Детали: ${lead.projectStatus}`,
+    `Размер: ${lead.size}`,
+    lead.calcRequest ? `Статус: ${lead.calcRequest}` : "",
+    `WhatsApp: ${lead.whatsapp}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const telegramOk = await sendTelegramLead(lead);
+  const bitrixOk = await sendLeadToBitrix({
+    name: lead.name,
+    phone: lead.phone,
+    comment: bitrixComment,
+  });
+
+  console.log("📦 FINALIZE CONSTRUCTION LEAD:", {
+    telegramOk,
+    bitrixOk,
+    lead,
+  });
+
+  return { telegramOk, bitrixOk };
+}
+
+async function verifyWebhook(req, res) {
+  try {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+
+    const allowedTokens = [
+      process.env.VERIFY_TOKEN,
+      process.env.CONSTRUCTION_VERIFY_TOKEN,
+      process.env.CLINIC_VERIFY_TOKEN,
+    ].filter(Boolean);
+
+    if (mode === "subscribe" && allowedTokens.includes(token)) {
+      console.log("✅ WEBHOOK VERIFIED");
+      return res.status(200).send(challenge);
+    }
+
+    return res.sendStatus(403);
+  } catch (error) {
+    console.error("❌ verifyWebhook error:", error.message);
+    return res.sendStatus(500);
+  }
+}
+
+async function handleWebhook(req, res) {
+  try {
+    res.sendStatus(200);
+
+    const entry = req.body?.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value;
+
+    if (!value) return;
+
+    if (value.statuses) {
+      console.log("ℹ️ STATUS EVENT:", JSON.stringify(value.statuses, null, 2));
+      return;
+    }
+
+    const message = value?.messages?.[0];
+    if (!message) return;
+
+    const phoneNumberId = value?.metadata?.phone_number_id;
+    const from = message.from;
+    const messageId = message.id;
+    const type = message.type;
+
+    const {
+      projectKey,
+      accessToken,
+      phoneNumberId: currentPhoneNumberId,
+    } = getProjectConfig(phoneNumberId);
+
+    if (!accessToken || !currentPhoneNumberId) {
+      console.error("❌ Missing accessToken or phoneNumberId", {
+        incomingPhoneNumberId: phoneNumberId,
+        projectKey,
+        hasAccessToken: Boolean(accessToken),
+        hasPhoneNumberId: Boolean(currentPhoneNumberId),
+      });
+      return;
+    }
+
+    let text = "";
+
+    if (type === "text") {
+      text = message.text?.body || "";
+    } else if (type === "interactive") {
+      text =
+        message.interactive?.button_reply?.title ||
+        message.interactive?.list_reply?.title ||
+        "";
+    } else if (type === "button") {
+      text = message.button?.text || "";
+    } else if (type === "image") {
+      text = "[image]";
+    } else if (type === "document") {
+      text = "[document]";
+    } else {
+      text = `[${type}]`;
+    }
+
+    console.log("📩 PROJECT:", projectKey);
+    console.log("📩 FROM:", from);
+    console.log("📩 TEXT:", text);
+
+    const session = getSession(projectKey, from);
+
+    await markMessageAsRead({
+      accessToken,
+      phoneNumberId: currentPhoneNumberId,
+      messageId,
+    });
+
+    const routed = await routeMessage({
+      text,
+      session,
+      projectType: projectKey,
+    });
+
+    const result = routed?.result || {};
+    const reply = result.reply || "";
+    const nextStep = result.nextStep || session.step || "start";
+    const nextMode = result.mode || session.mode || "scenario";
+    const nextLanguage = result.language || session.language || null;
+    const nextData = result.data || session.data || {};
+
+    const updated = updateSession(projectKey, from, {
+      step: nextStep,
+      mode: nextMode,
+      language: nextLanguage,
+      data: nextData,
+    });
+
+    if (nextStep === "completed" && !updated.leadSent) {
+      await finalizeLead({
+        projectKey,
+        from,
+        session: updated,
+      });
+
+      updateSession(projectKey, from, {
+        leadSent: true,
+      });
+    }
+
+    if (!reply) return;
+
+    await delay(getTypingDelay(reply));
+
+    await sendWhatsAppMessage({
+      accessToken,
+      phoneNumberId: currentPhoneNumberId,
+      to: from,
+      body: reply,
+    });
+  } catch (error) {
+    console.error("❌ handleWebhook error:", error.response?.data || error.message);
+  }
+}
+
 module.exports = {
-  routeMessage,
+  verifyWebhook,
+  handleWebhook,
 };
