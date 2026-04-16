@@ -207,5 +207,8 @@ module.exports = {
   languageButtons: {
     kz: ["қазақша", "1", "kz", "казахский"],
     ru: ["русский", "2", "ru", "russian"],
-  },
-}
+   },
+ },
+};
+
+module.exports = projects;
