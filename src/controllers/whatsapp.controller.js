@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { sendClinicTelegramLead } = require("../services/telegramClinic.service");
 const { sendTelegramLead } = require("../services/telegram.service");
 const { sendLeadToBitrix } = require("../services/bitrix.service");
 
