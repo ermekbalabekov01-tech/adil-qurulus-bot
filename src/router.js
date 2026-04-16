@@ -1,4 +1,5 @@
 const projects = require("./config/projects.config");
+const { getAIReply } = require("./services/ai.service");
 
 function normalizeText(text) {
   return String(text || "")
@@ -457,10 +458,115 @@ function isTrainingIntent(text, currentData = {}) {
   );
 }
 
+function clinicShouldUseAI(text, session) {
+  const step = session?.step || "start";
+  const t = normalizeText(text);
+
+  const blockedSteps = [
+    "language_select",
+    "start",
+    "ask_phone",
+    "training_phone",
+    "completed",
+    "done",
+  ];
+
+  if (blockedSteps.includes(step)) return false;
+  if (looksLikePhone(text)) return false;
+  if (isGreeting(text)) return false;
+  if (t.length < 8) return false;
+
+  const aiSignals = [
+    "сколько",
+    "цена",
+    "стоимость",
+    "больно",
+    "опасно",
+    "можно ли",
+    "подойдет ли",
+    "какая разница",
+    "как проходит",
+    "сколько длится",
+    "сколько дней",
+    "реабилитация",
+    "восстановление",
+    "шрам",
+    "результат",
+    "приживаемость",
+    "противопоказ",
+    "обучение",
+    "курс",
+    "семинар",
+    "хочу узнать",
+    "расскажите",
+    "подскажите подробнее",
+    "қанша",
+    "бағасы",
+    "ауыра ма",
+    "қалай өтеді",
+    "үйрету",
+    "оқу",
+    "курс",
+    "семинар",
+  ];
+
+  return aiSignals.some((word) => t.includes(word));
+}
+
+function getClinicStepReminder(step, lang = "ru") {
+  const reminders = {
+    ru: {
+      ask_service: "Если удобно, напишите, пожалуйста, какая процедура вас интересует.",
+      ask_photo: "Если удобно, отправьте фото зоны или просто напишите: Без фото.",
+      ask_day: "Напишите, пожалуйста, удобный день для консультации.",
+      ask_time: "И напишите удобное время. Например: 12:00",
+      ask_name_age: "И напишите, пожалуйста, как к вам обращаться и ваш возраст.",
+      training_name: "И напишите, пожалуйста, как к вам обращаться.",
+      training_phone: "И напишите, пожалуйста, номер телефона для связи.",
+    },
+    kz: {
+      ask_service: "Ыңғайлы болса, қай процедура қызықтыратынын жазыңыз.",
+      ask_photo: "Ыңғайлы болса, фото жіберіңіз немесе: Фото жоқ деп жазыңыз.",
+      ask_day: "Консультацияға ыңғайлы күніңізді жазыңыз.",
+      ask_time: "Және ыңғайлы уақытыңызды жазыңыз. Мысалы: 12:00",
+      ask_name_age: "Және өз атыңыз бен жасыңызды жазыңыз.",
+      training_name: "Және өз атыңызды жазыңыз.",
+      training_phone: "Және байланыс үшін телефон нөміріңізді жазыңыз.",
+    },
+  };
+
+  return reminders[lang]?.[step] || reminders.ru.ask_service;
+}
+
+async function tryClinicAIReply({ text, session, lang }) {
+  try {
+    const aiReply = await getAIReply({
+      project: "clinic",
+      message: text,
+      session: {
+        ...session,
+        language: lang,
+        aiInstructions:
+          "Ты Алия, ассистент клиники Dr.Aitimbetova. " +
+          "Отвечай тепло, по делу и коротко. " +
+          "Не ставь диагноз. " +
+          "Не обещай результат операции. " +
+          "Не называй точную цену без консультации и оценки зоны. " +
+          "Если вопрос про обучение, скажи, что администратор свяжется для уточнения программы, формата, стоимости и ближайших дат. " +
+          "После ответа мягко возвращай человека к записи.",
+      },
+    });
+
+    return aiReply || "";
+  } catch (error) {
+    console.error("❌ clinic AI error:", error.message);
+    return "";
+  }
+}
+
 async function routeClinicMessage({ text, session, projectConfig, lang }) {
   const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
   const currentData = session?.data || {};
-  const t = normalizeText(text);
 
   if (!session?.language) {
     const detected = detectLanguage(text, projectConfig);
@@ -501,6 +607,29 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         data: currentData,
       },
     };
+  }
+
+  if (clinicShouldUseAI(text, session)) {
+    const aiReply = await tryClinicAIReply({
+      text,
+      session,
+      lang,
+    });
+
+    if (aiReply) {
+      const reminder = getClinicStepReminder(session?.step, lang);
+
+      return {
+        project: "clinic",
+        result: {
+          reply: `${aiReply}\n\n${reminder}`,
+          nextStep: session?.step || "ask_service",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
   }
 
   if (session?.step === "language_select") {
@@ -1057,11 +1186,11 @@ async function routeMessage({ text, session, projectType }) {
   }
 
   return routeConstructionMessage({
-      text,
-      session,
-      projectConfig,
-      lang,
-    });
+    text,
+    session,
+    projectConfig,
+    lang,
+  });
 }
 
 module.exports = {

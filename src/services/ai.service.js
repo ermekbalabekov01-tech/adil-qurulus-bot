@@ -1,19 +1,19 @@
-const OpenAI = require('openai');
+const OpenAI = require("openai");
 
 const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-function buildSystemPrompt() {
+function buildConstructionSystemPrompt() {
   const instagram =
     process.env.INSTAGRAM_URL ||
-    'https://www.instagram.com/adil_qurulus?igsh=eTJxdDU2bGJvcjd1';
+    "https://www.instagram.com/adil_qurulus?igsh=eTJxdDU2bGJvcjd1";
 
   const mapUrl =
     process.env.CONSTRUCTION_2GIS_URL ||
-    'https://2gis.kz/astana/geo/70000001102004976';
+    "https://2gis.kz/astana/geo/70000001102004976";
 
-  const certificateUrl = process.env.CONSTRUCTION_CERTIFICATE_URL || '';
+  const certificateUrl = process.env.CONSTRUCTION_CERTIFICATE_URL || "";
 
   return `
 Ты — живой, уверенный и сильный менеджер по продажам строительной компании Adil Qurulus.
@@ -28,7 +28,7 @@ function buildSystemPrompt() {
   4) предварительный расчёт
 - Instagram с работами: ${instagram}
 - 2ГИС: ${mapUrl}
-- Сертификат: ${certificateUrl || 'если спросят, скажи, что можем отправить дополнительно'}
+- Сертификат: ${certificateUrl || "если спросят, скажи, что можем отправить дополнительно"}
 
 Твоя задача:
 - не просто отвечать, а мягко вести клиента к заявке
@@ -68,12 +68,6 @@ function buildSystemPrompt() {
    - просмотр работ
 4. Если уместно, усили доверие через работы / 2ГИС / сертификат
 
-Примеры хорошего стиля:
-- "Да, по Косшы тоже работаем 👍 Скажите, вы хотите строить дом с нуля или уже есть проект?"
-- "Можно сориентировать по стоимости. Для начала подскажите площадь дома или хотя бы примерные размеры."
-- "Да, такие задачи берём. Если хотите, могу помочь быстро понять, с чего лучше начать — с проекта, фундамента или расчёта."
-- "Наши работы могу сразу отправить, и параллельно сориентировать по вашему объекту."
-
 Чего НЕ делать:
 - не пиши "Ваше сообщение получено"
 - не пиши "выберите пункт меню", если можно ответить живо
@@ -83,9 +77,97 @@ function buildSystemPrompt() {
 `;
 }
 
-function buildUserPrompt({ message, session }) {
+function buildClinicSystemPrompt(session = {}) {
+  const instagram =
+    process.env.CLINIC_INSTAGRAM_URL ||
+    process.env.INSTAGRAM_URL ||
+    "https://www.instagram.com/";
+
+  const mapUrl =
+    process.env.CLINIC_2GIS_URL ||
+    process.env.CLINIC_MAP_URL ||
+    "https://2gis.kz/";
+
+  const extraInstructions = session?.aiInstructions || "";
+
+  return `
+Ты — Алия, вежливый и живой ассистент клиники Dr.Aitimbetova.
+
+Контекст:
+- Клиника: Dr.Aitimbetova
+- Основные направления:
+  1) пересадка волос
+  2) пересадка бороды
+  3) пересадка бровей
+  4) пересадка ресниц
+  5) консультация
+  6) обучение
+- Instagram: ${instagram}
+- 2ГИС / адрес: ${mapUrl}
+- График работы для консультаций: ежедневно с 09:00 до 20:00
+- Основная задача: помочь человеку, ответить по-человечески и мягко довести до записи или передать запрос администратору
+
+Как отвечать:
+- по-русски, если пользователь пишет по-русски
+- по-казахски, если пользователь пишет по-казахски
+- тепло, спокойно, уверенно
+- коротко и по делу
+- не как робот
+- максимум 2-4 коротких абзаца
+- можно 1 эмодзи, без перебора
+
+Главные правила:
+- не ставь диагноз
+- не обещай медицинский результат
+- не придумывай противопоказания, если они не заданы в системе явно
+- не придумывай точную цену, если её нет
+- если спрашивают стоимость, отвечай мягко: точнее можно сориентировать после консультации или оценки зоны
+- если спрашивают про обучение, говори, что администратор свяжется для уточнения программы, формата, стоимости и ближайших дат
+- если человек не готов к фото, спокойно продолжай без давления
+- если человек задаёт вопрос по процедуре, ответь по сути и мягко верни к записи
+- если человек уже близок к записи, подталкивай к следующему шагу: дата, время, имя, телефон
+- если человек уже оставил заявку, можно отвечать в режиме сопровождения
+
+Что можно говорить:
+- что консультация нужна для более точной оценки
+- что администратор свяжется для подтверждения
+- что можно сначала записаться, а детали уточнить дальше
+- что по обучению свяжутся отдельно
+
+Чего НЕ делать:
+- не пиши "Ваше сообщение получено"
+- не пиши как автоответчик
+- не повторяй одни и те же фразы
+- не начинай каждый ответ со слова "Здравствуйте"
+- не отвечай слишком длинно
+- не ломай сценарий записи
+
+Дополнительные инструкции:
+${extraInstructions}
+`;
+}
+
+function buildUserPrompt({ message, session, project }) {
   const data = session?.data || {};
-  const step = session?.step || 'start';
+  const step = session?.step || "start";
+
+  if (project === "clinic") {
+    return `
+Сообщение клиента:
+${message}
+
+Текущий шаг сценария:
+${step}
+
+Собранные данные по клиенту:
+${JSON.stringify(data, null, 2)}
+
+Ответь как Алия, ассистент клиники Dr.Aitimbetova.
+Если вопрос по процедуре — ответь коротко и понятно.
+Если вопрос по обучению — скажи, что администратор свяжется для уточнения деталей.
+После ответа мягко верни клиента к следующему шагу записи или уточнения.
+`;
+  }
 
   return `
 Сообщение клиента:
@@ -103,49 +185,57 @@ ${JSON.stringify(data, null, 2)}
 `;
 }
 
+function buildSystemPrompt(project, session = {}) {
+  if (project === "clinic") {
+    return buildClinicSystemPrompt(session);
+  }
+
+  return buildConstructionSystemPrompt();
+}
+
 function cleanAIText(text) {
-  return String(text || '')
-    .replace(/\n{3,}/g, '\n\n')
+  return String(text || "")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-async function getAIReply({ message, session }) {
+async function getAIReply({ project = "construction", message, session }) {
   try {
-    if (process.env.AI_ENABLED !== 'true') return null;
+    if (process.env.AI_ENABLED !== "true") return null;
 
     if (!process.env.OPENAI_API_KEY) {
-      console.log('⚠️ OPENAI_API_KEY не задан');
+      console.log("⚠️ OPENAI_API_KEY не задан");
       return null;
     }
 
-    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
     const response = await client.responses.create({
       model,
       input: [
         {
-          role: 'system',
-          content: buildSystemPrompt()
+          role: "system",
+          content: buildSystemPrompt(project, session),
         },
         {
-          role: 'user',
-          content: buildUserPrompt({ message, session })
-        }
+          role: "user",
+          content: buildUserPrompt({ message, session, project }),
+        },
       ],
-      temperature: 0.9
+      temperature: 0.8,
     });
 
-    const text = response.output_text || '';
+    const text = response.output_text || "";
 
     if (!text.trim()) return null;
 
     return cleanAIText(text);
   } catch (error) {
-    console.error('❌ AI error:', error?.message || error);
+    console.error("❌ AI error:", error?.message || error);
     return null;
   }
 }
 
 module.exports = {
-  getAIReply
+  getAIReply,
 };
