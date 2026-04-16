@@ -11,7 +11,7 @@ function normalizeText(text) {
 function cleanGreetingText(text) {
   return String(text || "")
     .toLowerCase()
-    .replace(/[^a-zа-яёәіңғүұқөһі\s]/gi, " ")
+    .replace(/[^a-zа-яёәіңғүұқөһі0-9\s./:-]/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -209,13 +209,261 @@ function buildSupportReply(lang, projectConfig, text) {
   return prompts.supportGeneric;
 }
 
+function extractName(text) {
+  const cleaned = String(text || "")
+    .replace(/[^\p{L}\s-]/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!cleaned) return "";
+  const parts = cleaned.split(" ");
+  return parts[0] || cleaned;
+}
+
+function monthNumberByWord(text) {
+  const t = normalizeText(text);
+
+  const months = {
+    "январ": 0,
+    "феврал": 1,
+    "март": 2,
+    "апрел": 3,
+    "май": 4,
+    "мая": 4,
+    "июн": 5,
+    "июл": 6,
+    "август": 7,
+    "сентябр": 8,
+    "октябр": 9,
+    "ноябр": 10,
+    "декабр": 11,
+    "қаңтар": 0,
+    "ақпан": 1,
+    "наурыз": 2,
+    "сәуір": 3,
+    "мамыр": 4,
+    "маусым": 5,
+    "шілде": 6,
+    "тамыз": 7,
+    "қыркүйек": 8,
+    "қазан": 9,
+    "қараша": 10,
+    "желтоқсан": 11,
+  };
+
+  for (const [key, value] of Object.entries(months)) {
+    if (t.includes(key)) return value;
+  }
+
+  return null;
+}
+
+function formatDateForUser(date, lang = "ru") {
+  const d = new Date(date);
+  const monthsRu = [
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+  ];
+  const monthsKz = [
+    "қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым",
+    "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан",
+  ];
+
+  if (lang === "kz") {
+    return `${d.getDate()} ${monthsKz[d.getMonth()]}`;
+  }
+
+  return `${d.getDate()} ${monthsRu[d.getMonth()]}`;
+}
+
+function parseVisitDate(text, lang = "ru") {
+  const t = normalizeText(text);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+
+  if (t.includes("сегодня") || t.includes("бүгін")) {
+    return {
+      ok: true,
+      value: formatDateForUser(now, lang),
+      iso: now.toISOString().slice(0, 10),
+    };
+  }
+
+  if (t.includes("завтра") || t.includes("ертең")) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    return {
+      ok: true,
+      value: formatDateForUser(d, lang),
+      iso: d.toISOString().slice(0, 10),
+    };
+  }
+
+  if (t.includes("послезавтра")) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 2);
+    return {
+      ok: true,
+      value: formatDateForUser(d, lang),
+      iso: d.toISOString().slice(0, 10),
+    };
+  }
+
+  const weekdaysRu = {
+    "понедельник": 1,
+    "вторник": 2,
+    "среда": 3,
+    "четверг": 4,
+    "пятница": 5,
+    "суббота": 6,
+    "воскресенье": 0,
+  };
+
+  const weekdaysKz = {
+    "дүйсенбі": 1,
+    "сейсенбі": 2,
+    "сәрсенбі": 3,
+    "бейсенбі": 4,
+    "жұма": 5,
+    "сенбі": 6,
+    "жексенбі": 0,
+  };
+
+  for (const [dayText, weekday] of Object.entries({ ...weekdaysRu, ...weekdaysKz })) {
+    if (t.includes(dayText)) {
+      const d = new Date(now);
+      let diff = (weekday - d.getDay() + 7) % 7;
+      if (diff === 0) diff = 7;
+      d.setDate(d.getDate() + diff);
+
+      return {
+        ok: true,
+        value: formatDateForUser(d, lang),
+        iso: d.toISOString().slice(0, 10),
+      };
+    }
+  }
+
+  const numeric = t.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+  if (numeric) {
+    const day = Number(numeric[1]);
+    const month = Number(numeric[2]) - 1;
+    let year = numeric[3] ? Number(numeric[3]) : now.getFullYear();
+    if (year < 100) year += 2000;
+
+    const d = new Date(year, month, day);
+    if (!Number.isNaN(d.getTime())) {
+      return {
+        ok: true,
+        value: formatDateForUser(d, lang),
+        iso: d.toISOString().slice(0, 10),
+      };
+    }
+  }
+
+  const dayOnly = t.match(/\b([0-2]?\d|3[01])\b/);
+  const monthByWord = monthNumberByWord(t);
+  if (dayOnly && monthByWord !== null) {
+    let year = now.getFullYear();
+    const d = new Date(year, monthByWord, Number(dayOnly[1]));
+    if (d < now) d.setFullYear(year + 1);
+
+    return {
+      ok: true,
+      value: formatDateForUser(d, lang),
+      iso: d.toISOString().slice(0, 10),
+    };
+  }
+
+  return { ok: false };
+}
+
+function parseVisitTime(text) {
+  const t = normalizeText(text);
+
+  const match = t.match(/\b([0-2]?\d)[:. ]([0-5]\d)\b/);
+  if (match) {
+    const hh = Number(match[1]);
+    const mm = Number(match[2]);
+    if (hh <= 23 && mm <= 59) {
+      return {
+        ok: true,
+        value: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`,
+        hour: hh,
+        minute: mm,
+      };
+    }
+  }
+
+  const hourOnly = t.match(/\b([0-2]?\d)\b/);
+  if (hourOnly) {
+    const hh = Number(hourOnly[1]);
+    if (hh <= 23) {
+      return {
+        ok: true,
+        value: `${String(hh).padStart(2, "0")}:00`,
+        hour: hh,
+        minute: 0,
+      };
+    }
+  }
+
+  return { ok: false };
+}
+
+function isWithinClinicHours(parsedTime) {
+  if (!parsedTime?.ok) return false;
+
+  const total = parsedTime.hour * 60 + parsedTime.minute;
+  const start = 9 * 60;
+  const end = 20 * 60;
+
+  return total >= start && total <= end;
+}
+
+function getClinicWorkingHoursReply(lang = "ru") {
+  if (lang === "kz") {
+    return (
+      "Клиника 09:00-ден 20:00-ге дейін жұмыс істейді 🌿\n\n" +
+      "Осы аралықтағы ыңғайлы уақытты жазыңыз.\nМысалы: 12:00"
+    );
+  }
+
+  return (
+    "Клиника работает с 09:00 до 20:00 🌿\n\n" +
+    "Напишите, пожалуйста, удобное время в этом диапазоне.\nНапример: 12:00"
+  );
+}
+
+function isTrainingIntent(text, currentData = {}) {
+  const t = normalizeText(text);
+
+  if (currentData?.intent === "training") return true;
+
+  return (
+    t.includes("обучение") ||
+    t.includes("курс") ||
+    t.includes("курсы") ||
+    t.includes("хочу учиться") ||
+    t.includes("обучение пересадке") ||
+    t.includes("обучение волос") ||
+    t.includes("мастер класс") ||
+    t.includes("мастер-класс") ||
+    t.includes("семинар") ||
+    t.includes("обучаться") ||
+    t.includes("оқу") ||
+    t.includes("курсқа") ||
+    t.includes("үйрену")
+  );
+}
+
 async function routeClinicMessage({ text, session, projectConfig, lang }) {
   const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
   const currentData = session?.data || {};
   const t = normalizeText(text);
 
   if (!session?.language) {
-    const detected = detectLanguage(t, projectConfig);
+    const detected = detectLanguage(text, projectConfig);
 
     if (!detected) {
       return {
@@ -286,6 +534,30 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   }
 
   if (session?.step === "ask_service") {
+    const intent = detectIntent(text, projectConfig) || currentData.intent;
+    const training = isTrainingIntent(text, { ...currentData, intent });
+
+    if (training) {
+      return {
+        project: "clinic",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Түсіндім 🌿\n\nОқу бойынша сұранысыңызды қабылдадым.\nЕнді өз атыңызды жазыңызшы."
+              : "Поняла 🌿\n\nПриняла ваш запрос по обучению.\nПодскажите, пожалуйста, как я могу к вам обращаться?",
+          nextStep: "training_name",
+          mode: "scenario",
+          language: lang,
+          data: {
+            ...currentData,
+            intent: "training",
+            service: text,
+            projectDetails: text,
+          },
+        },
+      };
+    }
+
     return {
       project: "clinic",
       result: {
@@ -297,7 +569,62 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
           ...currentData,
           service: text,
           projectDetails: text,
-          intent: detectIntent(text, projectConfig) || currentData.intent,
+          intent,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "training_name") {
+    return {
+      project: "clinic",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Рақмет 🌸\n\nТелефон нөміріңізді жазыңызшы. Администратор сізбен оқу бойынша хабарласады."
+            : "Спасибо 🌸\n\nНапишите, пожалуйста, ваш номер телефона. Администратор свяжется с вами по обучению.",
+        nextStep: "training_phone",
+        mode: "scenario",
+        language: lang,
+        data: {
+          ...currentData,
+          name: extractName(text) || text,
+        },
+      },
+    };
+  }
+
+  if (session?.step === "training_phone") {
+    if (!looksLikePhone(text)) {
+      return {
+        project: "clinic",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Телефон нөмірін ыңғайлы форматта жазыңызшы."
+              : "Пожалуйста, напишите номер телефона в удобном формате.",
+          nextStep: "training_phone",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
+
+    return {
+      project: "clinic",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Рақмет 🌿\n\nОқу бойынша сұранысыңызды администраторға жібердім.\nСізбен бағдарлама, формат, бағасы және жақын күндер туралы нақтылау үшін хабарласады."
+            : "Спасибо 🌿\n\nЯ передала ваш запрос по обучению администратору.\nС вами свяжутся для уточнения программы, формата, стоимости и ближайших дат.",
+        nextStep: "completed",
+        mode: "support",
+        language: lang,
+        data: {
+          ...currentData,
+          phone: text,
+          leadType: "training",
         },
       },
     };
@@ -321,6 +648,24 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   }
 
   if (session?.step === "ask_day") {
+    const parsedDate = parseVisitDate(text, lang);
+
+    if (!parsedDate.ok) {
+      return {
+        project: "clinic",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Күні ыңғайлы форматта жазыңызшы 🌿\nМысалы: ертең, дүйсенбі, 19 сәуір"
+              : "Напишите, пожалуйста, дату в удобном формате 🌿\nНапример: завтра, понедельник, 19 апреля",
+          nextStep: "ask_day",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
+
     return {
       project: "clinic",
       result: {
@@ -330,14 +675,46 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         language: lang,
         data: {
           ...currentData,
-          visitDay: text,
-          timing: text,
+          visitDay: parsedDate.value,
+          visitDateIso: parsedDate.iso,
+          timing: parsedDate.value,
         },
       },
     };
   }
 
   if (session?.step === "ask_time") {
+    const parsedTime = parseVisitTime(text);
+
+    if (!parsedTime.ok) {
+      return {
+        project: "clinic",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Уақытты ыңғайлы форматта жазыңызшы 🌿\nМысалы: 12:00"
+              : "Напишите, пожалуйста, время в удобном формате 🌿\nНапример: 12:00",
+          nextStep: "ask_time",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
+
+    if (!isWithinClinicHours(parsedTime)) {
+      return {
+        project: "clinic",
+        result: {
+          reply: getClinicWorkingHoursReply(lang),
+          nextStep: "ask_time",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
+
     return {
       project: "clinic",
       result: {
@@ -347,8 +724,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         language: lang,
         data: {
           ...currentData,
-          visitTime: text,
-          preferredTime: text,
+          visitTime: parsedTime.value,
+          preferredTime: parsedTime.value,
         },
       },
     };
@@ -410,6 +787,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         data: {
           ...currentData,
           phone: text,
+          leadType: "consultation",
         },
       },
     };
@@ -484,7 +862,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
   }
 
   if (!session?.language) {
-    const detected = detectLanguage(t, projectConfig);
+    const detected = detectLanguage(text, projectConfig);
 
     if (!detected) {
       return {
@@ -679,11 +1057,11 @@ async function routeMessage({ text, session, projectType }) {
   }
 
   return routeConstructionMessage({
-    text,
-    session,
-    projectConfig,
-    lang,
-  });
+      text,
+      session,
+      projectConfig,
+      lang,
+    });
 }
 
 module.exports = {
