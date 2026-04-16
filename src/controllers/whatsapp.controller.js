@@ -1,6 +1,5 @@
 const axios = require("axios");
 const { sendTelegramLead } = require("../services/telegram.service");
-const { sendClinicTelegramLead } = require("../services/telegramClinic.service");
 const { sendLeadToBitrix } = require("../services/bitrix.service");
 
 const sessions = new Map();
