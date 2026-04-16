@@ -1,5 +1,6 @@
 const axios = require("axios");
 const { sendTelegramLead } = require("../services/telegram.service");
+const { sendClinicTelegramLead } = require("../services/telegramClinic.service");
 const { sendLeadToBitrix } = require("../services/bitrix.service");
 
 const sessions = new Map();
@@ -239,7 +240,7 @@ function getSession(projectKey, phone) {
       step: "start",
       mode: "scenario", // scenario | support
       language: null,
-     data: {},
+      data: {},
       leadSent: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -381,6 +382,28 @@ function getAngryReply(lang) {
 /* ---------------- integrations ---------------- */
 
 async function finalizeLead({ projectKey, from, session }) {
+  if (projectKey === "clinic") {
+    const lead = {
+      name: session.data?.name || "Не указано",
+      phone: session.data?.phone || from,
+      whatsapp: from,
+      city: session.data?.city || "Не указано",
+      service: session.data?.service || session.data?.serviceTitle || "Не указано",
+      hadConsultation: session.data?.hadConsultation || "Не указано",
+      photoStatus: session.data?.photoStatus || "Не указано",
+      visitTime: session.data?.visitTime || "Не указано",
+    };
+
+    const telegramOk = await sendClinicTelegramLead(lead);
+
+    console.log("📦 FINALIZE CLINIC LEAD:", {
+      telegramOk,
+      lead,
+    });
+
+    return { telegramOk, bitrixOk: true };
+  }
+
   const lead = {
     name: session.data?.name || "Не указано",
     phone: session.data?.phone || from,
@@ -411,7 +434,7 @@ async function finalizeLead({ projectKey, from, session }) {
     comment: bitrixComment,
   });
 
-  console.log("📦 FINALIZE LEAD:", {
+  console.log("📦 FINALIZE CONSTRUCTION LEAD:", {
     telegramOk,
     bitrixOk,
     lead,
