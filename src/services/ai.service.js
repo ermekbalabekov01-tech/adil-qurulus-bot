@@ -1,8 +1,18 @@
 const OpenAI = require("openai");
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let client = null;
+
+function getClient() {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  if (!client) {
+    client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+  }
+
+  return client;
+}
 
 function buildConstructionSystemPrompt() {
   const instagram =
@@ -210,7 +220,10 @@ async function getAIReply({ project = "construction", message, session }) {
 
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-    const response = await client.responses.create({
+    const clientInstance = getClient();
+    if (!clientInstance) return null;
+
+    const response = await clientInstance.responses.create({
       model,
       input: [
         {
