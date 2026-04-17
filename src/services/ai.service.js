@@ -181,6 +181,7 @@ function cleanAIText(text) {
 async function getAIReply({ project = "construction", message, session }) {
   try {
     if (process.env.AI_ENABLED !== "true") return null;
+
     if (!process.env.OPENAI_API_KEY) {
       console.log("⚠️ OPENAI_API_KEY не задан");
       return null;
