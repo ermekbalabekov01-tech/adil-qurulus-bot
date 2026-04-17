@@ -85,52 +85,74 @@ function updateSession(projectKey, phone, patch = {}) {
   return next;
 }
 
-/* ---------------- retry ---------------- */
-
 async function safeCall(fn, label) {
   try {
     const res = await fn();
     console.log(`✅ ${label} OK`);
-    return true;
+    return res;
   } catch (e) {
     console.log(`❌ ${label} ERROR:`, e.response?.data || e.message);
     return false;
   }
 }
 
+/* ---------------- lead builders ---------------- */
+
+function buildClinicLead(from, session) {
+  const data = session?.data || {};
+
+  return {
+    leadType: data.leadType || (data.intent === "training" ? "training" : "consultation"),
+    name: data.name || "Не указано",
+    phone: data.phone || from,
+    whatsapp: from,
+    city: data.city || data.location || "Не указано",
+    location: data.location || data.city || "Не указано",
+    service: data.service || data.projectDetails || data.intent || "Не указано",
+    projectDetails: data.projectDetails || data.service || "Не указано",
+    photoStatus: data.photoStatus || data.size || "Не указано",
+    visitDay: data.visitDay || data.timing || "Не указано",
+    visitTime: data.visitTime || data.preferredTime || "Не указано",
+  };
+}
+
+function buildConstructionLead(from, session) {
+  const data = session?.data || {};
+
+  return {
+    name: data.name || "Не указано",
+    phone: data.phone || from,
+    whatsapp: from,
+    direction: data.intent || "Не указано",
+    location: data.location || "Не указано",
+    size: data.size || "Не указано",
+    timing: data.timing || "Не указано",
+    projectDetails: data.projectDetails || "Не указано",
+  };
+}
+
 /* ---------------- finalize ---------------- */
 
 async function finalizeLead({ projectKey, from, session }) {
   if (projectKey === "clinic") {
-    const lead = {
-      name: session.data?.name || "Не указано",
-      phone: session.data?.phone || from,
-      whatsapp: from,
-    };
+    const lead = buildClinicLead(from, session);
 
-    const ok = await safeCall(
+    const telegramOk = await safeCall(
       () => sendClinicTelegramLead(lead),
       "CLINIC TELEGRAM"
     );
 
-    return { telegramOk: ok };
+    return { telegramOk: !!telegramOk };
   }
 
-  const lead = {
-    name: session.data?.name || "Не указано",
-    phone: session.data?.phone || from,
-    whatsapp: from,
-    direction: session.data?.intent || "Не указано",
-    location: session.data?.location || "Не указано",
-    size: session.data?.size || "Не указано",
-  };
+  const lead = buildConstructionLead(from, session);
 
-  const tg = await safeCall(
+  const telegramOk = await safeCall(
     () => sendTelegramLead(lead),
     "TELEGRAM"
   );
 
-  const bitrix = await safeCall(
+  const bitrixOk = await safeCall(
     () =>
       sendLeadToBitrix({
         name: lead.name,
@@ -140,10 +162,13 @@ async function finalizeLead({ projectKey, from, session }) {
     "BITRIX"
   );
 
-  return { telegramOk: tg, bitrixOk: bitrix };
+  return {
+    telegramOk: !!telegramOk,
+    bitrixOk: !!bitrixOk,
+  };
 }
 
-/* ---------------- api ---------------- */
+/* ---------------- whatsapp api ---------------- */
 
 async function sendWhatsAppMessage({ accessToken, phoneNumberId, to, body }) {
   await axios.post(
@@ -180,44 +205,85 @@ async function markMessageAsRead({ accessToken, phoneNumberId, messageId }) {
   );
 }
 
-/* ---------------- webhook ---------------- */
+/* ---------------- webhook verify ---------------- */
+
+function verifyWebhook(req, res) {
+  try {
+    const verifyToken =
+      req.query["hub.verify_token"] || req.query.hub_verify_token;
+    const mode = req.query["hub.mode"];
+    const challenge = req.query["hub.challenge"];
+
+    const validToken =
+      process.env.VERIFY_TOKEN ||
+      process.env.CLINIC_VERIFY_TOKEN ||
+      process.env.CONSTRUCTION_VERIFY_TOKEN;
+
+    if (mode === "subscribe" && verifyToken === validToken) {
+      console.log("✅ WEBHOOK VERIFIED");
+      return res.status(200).send(challenge);
+    }
+
+    console.log("❌ WEBHOOK VERIFY FAILED");
+    return res.sendStatus(403);
+  } catch (error) {
+    console.log("❌ VERIFY ERROR:", error.message);
+    return res.sendStatus(500);
+  }
+}
+
+/* ---------------- webhook handler ---------------- */
 
 async function handleWebhook(req, res) {
   try {
     res.sendStatus(200);
 
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
-    if (!value?.messages) return;
+    if (!value) return;
+
+    if (!value.messages || !value.messages.length) return;
 
     const message = value.messages[0];
     const from = message.from;
     const messageId = message.id;
 
+    if (!from || !messageId) return;
+
     if (processedMessages.has(messageId)) {
-      console.log("♻️ DUPLICATE SKIP");
+      console.log("♻️ DUPLICATE SKIP:", messageId);
       return;
     }
     processedMessages.add(messageId);
 
-    const phoneNumberId = value.metadata.phone_number_id;
-
+    const phoneNumberId = value?.metadata?.phone_number_id;
     const {
       projectKey,
       accessToken,
       phoneNumberId: currentPhoneNumberId,
     } = getProjectConfig(phoneNumberId);
 
-    let text = message.text?.body || "[media]";
+    const text =
+      message?.text?.body ||
+      message?.button?.text ||
+      message?.interactive?.button_reply?.title ||
+      message?.interactive?.list_reply?.title ||
+      "[media]";
 
-    console.log("📩", projectKey, from, text);
+    console.log("📩 PROJECT:", projectKey);
+    console.log("📩 FROM:", from);
+    console.log("📩 TEXT:", text);
 
     const session = getSession(projectKey, from);
 
-    await markMessageAsRead({
-      accessToken,
-      phoneNumberId: currentPhoneNumberId,
-      messageId,
-    });
+    await safeCall(
+      () =>
+        markMessageAsRead({
+          accessToken,
+          phoneNumberId: currentPhoneNumberId,
+          messageId,
+        }),
+      "MARK AS READ"
+    );
 
     const routed = await routeMessage({
       text,
@@ -246,19 +312,29 @@ async function handleWebhook(req, res) {
       updateSession(projectKey, from, { leadSent: true });
     }
 
-    if (!result.reply) return;
+    if (!result.reply) {
+      console.log("⚠️ EMPTY REPLY");
+      return;
+    }
 
     await delay(getTypingDelay(result.reply));
 
-    await sendWhatsAppMessage({
-      accessToken,
-      phoneNumberId: currentPhoneNumberId,
-      to: from,
-      body: result.reply,
-    });
+    await safeCall(
+      () =>
+        sendWhatsAppMessage({
+          accessToken,
+          phoneNumberId: currentPhoneNumberId,
+          to: from,
+          body: result.reply,
+        }),
+      "SEND WHATSAPP MESSAGE"
+    );
   } catch (error) {
-    console.log("❌ ERROR:", error.response?.data || error.message);
+    console.log("❌ HANDLE WEBHOOK ERROR:", error.response?.data || error.message);
   }
 }
 
-module.exports = { handleWebhook };
+module.exports = {
+  verifyWebhook,
+  handleWebhook,
+};
