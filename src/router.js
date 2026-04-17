@@ -1254,6 +1254,31 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
 async function routeConstructionMessage({ text, session, projectConfig, lang }) {
   const t = normalizeText(text);
   const currentData = session?.data || {};
+if (
+    t.includes("какой район") ||
+    t.includes("в каком районе") ||
+    t.includes("где вы работаете") ||
+    t.includes("какие районы") ||
+    t.includes("по какому району") ||
+    t.includes("район") ||
+    t.includes("астана") ||
+    t.includes("косшы") ||
+    t.includes("пригород")
+  ) {
+    return {
+      project: "construction",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Біз Астана және жақын маңдағы аудандармен жұмыс істейміз 👍\n\nЕгер нақты локацияны жазсаңыз, сол жер бойынша бірден нақтылап айтамын."
+            : "Мы работаем по Астане и ближайшим пригородам 👍\n\nЕсли напишете точную локацию или район, я сразу сориентирую, работаем ли там.",
+        nextStep: session?.step || "qualification",
+        mode: session?.mode || "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
 
   if (session?.mode === "support") {
     return {
