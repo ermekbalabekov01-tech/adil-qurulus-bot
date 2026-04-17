@@ -226,17 +226,27 @@ function monthNumberByWord(text) {
 
   const months = {
     январ: 0,
+    февраля: 1,
     феврал: 1,
+    марта: 2,
     март: 2,
+    апреля: 3,
     апрел: 3,
-    май: 4,
     мая: 4,
+    май: 4,
+    июня: 5,
     июн: 5,
+    июля: 6,
     июл: 6,
+    августа: 7,
     август: 7,
+    сентября: 8,
     сентябр: 8,
+    октября: 9,
     октябр: 9,
+    ноября: 10,
     ноябр: 10,
+    декабря: 11,
     декабр: 11,
     қаңтар: 0,
     ақпан: 1,
@@ -262,12 +272,32 @@ function monthNumberByWord(text) {
 function formatDateForUser(date, lang = "ru") {
   const d = new Date(date);
   const monthsRu = [
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
   ];
   const monthsKz = [
-    "қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым",
-    "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан",
+    "қаңтар",
+    "ақпан",
+    "наурыз",
+    "сәуір",
+    "мамыр",
+    "маусым",
+    "шілде",
+    "тамыз",
+    "қыркүйек",
+    "қазан",
+    "қараша",
+    "желтоқсан",
   ];
 
   if (lang === "kz") {
@@ -396,19 +426,6 @@ function parseVisitTime(text) {
     }
   }
 
-  const hourOnly = t.match(/\b([0-2]?\d)\b/);
-  if (hourOnly) {
-    const hh = Number(hourOnly[1]);
-    if (hh <= 23) {
-      return {
-        ok: true,
-        value: `${String(hh).padStart(2, "0")}:00`,
-        hour: hh,
-        minute: 0,
-      };
-    }
-  }
-
   return { ok: false };
 }
 
@@ -477,6 +494,29 @@ function parseRangeLikeTime(text) {
   return normalizeHourMinute(fromHour, 0);
 }
 
+function parseLooseHour(text) {
+  const t = normalizeText(text);
+
+  const direct = t.match(/\b([0-2]?\d)\b/);
+  if (!direct) return { ok: false };
+
+  const hour = Number(direct[1]);
+  if (hour > 23) return { ok: false };
+
+  if (
+    t.includes("в ") ||
+    t.includes("сағат") ||
+    t.includes("час") ||
+    t.includes("к ") ||
+    t.includes("около") ||
+    t.includes("примерно")
+  ) {
+    return normalizeHourMinute(hour, 0);
+  }
+
+  return { ok: false };
+}
+
 function parseSmartDateTime(text, lang = "ru") {
   const date = parseVisitDate(text, lang);
 
@@ -484,6 +524,7 @@ function parseSmartDateTime(text, lang = "ru") {
   if (!time.ok) time = parseAfterTime(text);
   if (!time.ok) time = parsePartOfDayTime(text);
   if (!time.ok) time = parseRangeLikeTime(text);
+  if (!time.ok) time = parseLooseHour(text);
 
   return {
     hasDate: date.ok,
@@ -535,7 +576,7 @@ function getClinicAlternativeTimeReply(lang = "ru", parsedTime = null) {
   return (
     `Клиника работает с 09:00 до 20:00 🌿\n\n` +
     `Можно выбрать одно из ближайших удобных времен:\n` +
-      `${options.map((x) => `• ${x}`).join("\n")}`
+    `${options.map((x) => `• ${x}`).join("\n")}`
   );
 }
 
