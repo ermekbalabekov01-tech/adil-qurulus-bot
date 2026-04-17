@@ -5,6 +5,9 @@ const { sendClinicTelegramLead } = require("../services/telegramClinic.service")
 const { sendLeadToBitrix } = require("../services/bitrix.service");
 
 const sessions = new Map();
+const processedMessages = new Set();
+
+/* ---------------- helpers ---------------- */
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
@@ -42,16 +45,6 @@ function getProjectConfig(phoneNumberId) {
     };
   }
 
-  const fallbackProject = process.env.DEFAULT_PROJECT || "construction";
-
-  if (fallbackProject === "clinic") {
-    return {
-      projectKey: "clinic",
-      accessToken: process.env.CLINIC_ACCESS_TOKEN,
-      phoneNumberId: process.env.CLINIC_PHONE_NUMBER_ID,
-    };
-  }
-
   return {
     projectKey: "construction",
     accessToken: process.env.CONSTRUCTION_ACCESS_TOKEN,
@@ -69,8 +62,6 @@ function getSession(projectKey, phone) {
       language: null,
       data: {},
       leadSent: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     });
   }
 
@@ -88,35 +79,75 @@ function updateSession(projectKey, phone, patch = {}) {
       ...(current.data || {}),
       ...(patch.data || {}),
     },
-    updatedAt: new Date().toISOString(),
   };
 
   sessions.set(key, next);
   return next;
 }
 
-function isPricingIntent(text) {
-  const t = String(text || "").trim().toLowerCase();
+/* ---------------- retry ---------------- */
 
-  return (
-    t.includes("сколько") ||
-    t.includes("стоимость") ||
-    t.includes("цена") ||
-    t.includes("расчет") ||
-    t.includes("расчёт") ||
-    t.includes("посчитать") ||
-    t.includes("смета") ||
-    t.includes("баға") ||
-    t.includes("есеп") ||
-    t.includes("құны")
-  );
+async function safeCall(fn, label) {
+  try {
+    const res = await fn();
+    console.log(`✅ ${label} OK`);
+    return true;
+  } catch (e) {
+    console.log(`❌ ${label} ERROR:`, e.response?.data || e.message);
+    return false;
+  }
 }
 
-async function sendWhatsAppMessage({ accessToken, phoneNumberId, to, body }) {
-  const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
+/* ---------------- finalize ---------------- */
 
+async function finalizeLead({ projectKey, from, session }) {
+  if (projectKey === "clinic") {
+    const lead = {
+      name: session.data?.name || "Не указано",
+      phone: session.data?.phone || from,
+      whatsapp: from,
+    };
+
+    const ok = await safeCall(
+      () => sendClinicTelegramLead(lead),
+      "CLINIC TELEGRAM"
+    );
+
+    return { telegramOk: ok };
+  }
+
+  const lead = {
+    name: session.data?.name || "Не указано",
+    phone: session.data?.phone || from,
+    whatsapp: from,
+    direction: session.data?.intent || "Не указано",
+    location: session.data?.location || "Не указано",
+    size: session.data?.size || "Не указано",
+  };
+
+  const tg = await safeCall(
+    () => sendTelegramLead(lead),
+    "TELEGRAM"
+  );
+
+  const bitrix = await safeCall(
+    () =>
+      sendLeadToBitrix({
+        name: lead.name,
+        phone: lead.phone,
+        comment: JSON.stringify(lead, null, 2),
+      }),
+    "BITRIX"
+  );
+
+  return { telegramOk: tg, bitrixOk: bitrix };
+}
+
+/* ---------------- api ---------------- */
+
+async function sendWhatsAppMessage({ accessToken, phoneNumberId, to, body }) {
   await axios.post(
-    url,
+    `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
     {
       messaging_product: "whatsapp",
       to: normalizePhone(to),
@@ -126,7 +157,6 @@ async function sendWhatsAppMessage({ accessToken, phoneNumberId, to, body }) {
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
       },
     }
   );
@@ -135,10 +165,8 @@ async function sendWhatsAppMessage({ accessToken, phoneNumberId, to, body }) {
 async function markMessageAsRead({ accessToken, phoneNumberId, messageId }) {
   if (!messageId) return;
 
-  const url = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
-
   await axios.post(
-    url,
+    `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
     {
       messaging_product: "whatsapp",
       status: "read",
@@ -147,125 +175,31 @@ async function markMessageAsRead({ accessToken, phoneNumberId, messageId }) {
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
       },
     }
   );
 }
 
-async function finalizeLead({ projectKey, from, session }) {
-  if (projectKey === "clinic") {
-    const lead = {
-      name: session.data?.name || "Не указано",
-      phone: session.data?.phone || from,
-      whatsapp: from,
-      city: session.data?.location || session.data?.city || "Не указано",
-      service:
-        session.data?.projectDetails ||
-        session.data?.service ||
-        session.data?.serviceTitle ||
-        session.data?.intent ||
-        "Не указано",
-      hadConsultation: session.data?.hadConsultation || "Не указано",
-      photoStatus: session.data?.size || session.data?.photoStatus || "Не указано",
-      visitTime: session.data?.timing || session.data?.visitTime || "Не указано",
-    };
-
-    const telegramOk = await sendClinicTelegramLead(lead);
-
-    console.log("📦 FINALIZE CLINIC LEAD:", {
-      telegramOk,
-      lead,
-    });
-
-    return { telegramOk, bitrixOk: true };
-  }
-
-  const lead = {
-    name: session.data?.name || "Не указано",
-    phone: session.data?.phone || from,
-    whatsapp: from,
-    direction: session.data?.intent || "Не указано",
-    location: session.data?.location || "Не указано",
-    projectStatus: session.data?.projectDetails || "Не указано",
-    size: session.data?.size || "Не указано",
-    calcRequest:
-      isPricingIntent(session.data?.projectDetails || "") ? "Запросил расчёт" : "",
-  };
-
-  const bitrixComment = [
-    `Направление: ${lead.direction}`,
-    `Локация: ${lead.location}`,
-    `Детали: ${lead.projectStatus}`,
-    `Размер: ${lead.size}`,
-    lead.calcRequest ? `Статус: ${lead.calcRequest}` : "",
-    `WhatsApp: ${lead.whatsapp}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const telegramOk = await sendTelegramLead(lead);
-  const bitrixOk = await sendLeadToBitrix({
-    name: lead.name,
-    phone: lead.phone,
-    comment: bitrixComment,
-  });
-
-  console.log("📦 FINALIZE CONSTRUCTION LEAD:", {
-    telegramOk,
-    bitrixOk,
-    lead,
-  });
-
-  return { telegramOk, bitrixOk };
-}
-
-async function verifyWebhook(req, res) {
-  try {
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-
-    const allowedTokens = [
-      process.env.VERIFY_TOKEN,
-      process.env.CONSTRUCTION_VERIFY_TOKEN,
-      process.env.CLINIC_VERIFY_TOKEN,
-    ].filter(Boolean);
-
-    if (mode === "subscribe" && allowedTokens.includes(token)) {
-      console.log("✅ WEBHOOK VERIFIED");
-      return res.status(200).send(challenge);
-    }
-
-    return res.sendStatus(403);
-  } catch (error) {
-    console.error("❌ verifyWebhook error:", error.message);
-    return res.sendStatus(500);
-  }
-}
+/* ---------------- webhook ---------------- */
 
 async function handleWebhook(req, res) {
   try {
     res.sendStatus(200);
 
-    const entry = req.body?.entry?.[0];
-    const change = entry?.changes?.[0];
-    const value = change?.value;
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    if (!value?.messages) return;
 
-    if (!value) return;
-
-    if (value.statuses) {
-      console.log("ℹ️ STATUS EVENT:", JSON.stringify(value.statuses, null, 2));
-      return;
-    }
-
-    const message = value?.messages?.[0];
-    if (!message) return;
-
-    const phoneNumberId = value?.metadata?.phone_number_id;
+    const message = value.messages[0];
     const from = message.from;
     const messageId = message.id;
-    const type = message.type;
+
+    if (processedMessages.has(messageId)) {
+      console.log("♻️ DUPLICATE SKIP");
+      return;
+    }
+    processedMessages.add(messageId);
+
+    const phoneNumberId = value.metadata.phone_number_id;
 
     const {
       projectKey,
@@ -273,38 +207,9 @@ async function handleWebhook(req, res) {
       phoneNumberId: currentPhoneNumberId,
     } = getProjectConfig(phoneNumberId);
 
-    if (!accessToken || !currentPhoneNumberId) {
-      console.error("❌ Missing accessToken or phoneNumberId", {
-        incomingPhoneNumberId: phoneNumberId,
-        projectKey,
-        hasAccessToken: Boolean(accessToken),
-        hasPhoneNumberId: Boolean(currentPhoneNumberId),
-      });
-      return;
-    }
+    let text = message.text?.body || "[media]";
 
-    let text = "";
-
-    if (type === "text") {
-      text = message.text?.body || "";
-    } else if (type === "interactive") {
-      text =
-        message.interactive?.button_reply?.title ||
-        message.interactive?.list_reply?.title ||
-        "";
-    } else if (type === "button") {
-      text = message.button?.text || "";
-    } else if (type === "image") {
-      text = "[image]";
-    } else if (type === "document") {
-      text = "[document]";
-    } else {
-      text = `[${type}]`;
-    }
-
-    console.log("📩 PROJECT:", projectKey);
-    console.log("📩 FROM:", from);
-    console.log("📩 TEXT:", text);
+    console.log("📩", projectKey, from, text);
 
     const session = getSession(projectKey, from);
 
@@ -321,47 +226,39 @@ async function handleWebhook(req, res) {
     });
 
     const result = routed?.result || {};
-    const reply = result.reply || "";
-    const nextStep = result.nextStep || session.step || "start";
-    const nextMode = result.mode || session.mode || "scenario";
-    const nextLanguage = result.language || session.language || null;
-    const nextData = result.data || session.data || {};
 
     const updated = updateSession(projectKey, from, {
-      step: nextStep,
-      mode: nextMode,
-      language: nextLanguage,
-      data: nextData,
+      step: result.nextStep || session.step,
+      mode: result.mode || session.mode,
+      language: result.language || session.language,
+      data: result.data || session.data,
     });
 
-    if (nextStep === "completed" && !updated.leadSent) {
+    if (updated.step === "completed" && !updated.leadSent) {
+      console.log("🚀 SEND LEAD");
+
       await finalizeLead({
         projectKey,
         from,
         session: updated,
       });
 
-      updateSession(projectKey, from, {
-        leadSent: true,
-      });
+      updateSession(projectKey, from, { leadSent: true });
     }
 
-    if (!reply) return;
+    if (!result.reply) return;
 
-    await delay(getTypingDelay(reply));
+    await delay(getTypingDelay(result.reply));
 
     await sendWhatsAppMessage({
       accessToken,
       phoneNumberId: currentPhoneNumberId,
       to: from,
-      body: reply,
+      body: result.reply,
     });
   } catch (error) {
-    console.error("❌ handleWebhook error:", error.response?.data || error.message);
+    console.log("❌ ERROR:", error.response?.data || error.message);
   }
 }
 
-module.exports = {
-  verifyWebhook,
-  handleWebhook,
-};
+module.exports = { handleWebhook };
