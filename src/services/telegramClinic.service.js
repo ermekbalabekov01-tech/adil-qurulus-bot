@@ -1,57 +1,56 @@
-const axios = require("axios");
+const axios = require('axios');
 
-async function sendClinicTelegramLead(lead = {}) {
+function formatWhatsAppLink(phone) {
+  if (!phone) return '';
+  const clean = String(phone).replace(/\D/g, '');
+  return `https://wa.me/${clean}`;
+}
+
+async function sendClinicTelegramLead(data) {
   try {
-    const token = process.env.CLINIC_TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.CLINIC_TELEGRAM_CHAT_ID;
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
 
     if (!token || !chatId) {
-      console.log("⚠️ Clinic Telegram not configured");
-      return false;
+      console.log('❌ TELEGRAM ENV нет');
+      return;
     }
 
-    const leadType = lead.leadType || "consultation";
+    const waLink = formatWhatsAppLink(data.phone);
 
-    const lines =
-      leadType === "training"
-        ? [
-            "🎓 Новая заявка по обучению",
-            "",
-            `Имя: ${lead.name || "Не указано"}`,
-            `Телефон: ${lead.phone || lead.whatsapp || "Не указано"}`,
-            `Город: ${lead.city || lead.location || "Не указано"}`,
-            `Интерес: ${lead.service || lead.projectDetails || "Не указано"}`,
-            `WhatsApp: ${lead.whatsapp || "Не указано"}`,
-          ]
-        : [
-            "🌿 Новая заявка по клинике",
-            "",
-            "Тип: Консультация / процедура",
-            `Имя: ${lead.name || "Не указано"}`,
-            `Телефон: ${lead.phone || lead.whatsapp || "Не указано"}`,
-            `Город: ${lead.city || lead.location || "Не указано"}`,
-            `Услуга: ${lead.service || lead.projectDetails || "Не указано"}`,
-            `Фото: ${lead.photoStatus || "Не указано"}`,
-            `Дата: ${lead.visitDay || "Не указано"}`,
-            `Время: ${lead.visitTime || lead.preferredTime || "Не указано"}`,
-            `WhatsApp: ${lead.whatsapp || "Не указано"}`,
-          ];
+    const text = `
+🔥 <b>НОВАЯ ЗАЯВКА (КЛИНИКА)</b>
 
-    const text = lines.join("\n");
+👤 <b>Клиент:</b> ${data.name || '—'}
+📱 <b>Телефон:</b> ${data.phone || '—'}
+📍 <b>Город:</b> ${data.city || '—'}
+
+💉 <b>Услуга:</b> ${data.service || '—'}
+
+📅 <b>Дата:</b> ${data.date || '—'}
+⏰ <b>Время:</b> ${data.time || '—'}
+
+🖼 <b>Фото:</b> ${data.photo ? 'есть' : 'нет'}
+
+${waLink ? `👉 <a href="${waLink}">Написать в WhatsApp</a>` : ''}
+
+━━━━━━━━━━━━━━━
+⚡ Быстро обработать заявку
+`;
 
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: chatId,
       text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
     });
 
-    console.log("✅ Clinic Telegram lead sent");
-    return true;
-  } catch (error) {
-    console.error("❌ Clinic Telegram error:", error.response?.data || error.message);
-    return false;
+    console.log('✅ Telegram отправлено');
+  } catch (e) {
+    console.log('❌ Telegram error:', e?.response?.data || e.message);
   }
 }
 
 module.exports = {
-  sendClinicTelegramLead,
+  sendClinicTelegramLead
 };
