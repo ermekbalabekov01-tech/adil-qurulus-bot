@@ -51,6 +51,18 @@ function isGreeting(text) {
   ].some((g) => t.includes(g));
 }
 
+function isClinicAdStarter(text = "") {
+  const t = normalizeText(text);
+
+  return (
+    t.includes("можно узнать об этом подробнее") ||
+    t.includes("можно узнать подробнее") ||
+    t.includes("расскажите подробнее") ||
+    t.includes("хочу узнать подробнее") ||
+    t === "подробнее"
+  );
+}
+
 function isMuslimGreeting(text) {
   const t = cleanGreetingText(text);
 
