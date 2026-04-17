@@ -216,7 +216,7 @@ const projects = {
           "оқу",
           "курсқа",
           "үйрену"
-],
+      ],
     },
 
     languageButtons: {

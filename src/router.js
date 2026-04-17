@@ -225,31 +225,31 @@ function monthNumberByWord(text) {
   const t = normalizeText(text);
 
   const months = {
-    "январ": 0,
-    "феврал": 1,
-    "март": 2,
-    "апрел": 3,
-    "май": 4,
-    "мая": 4,
-    "июн": 5,
-    "июл": 6,
-    "август": 7,
-    "сентябр": 8,
-    "октябр": 9,
-    "ноябр": 10,
-    "декабр": 11,
-    "қаңтар": 0,
-    "ақпан": 1,
-    "наурыз": 2,
-    "сәуір": 3,
-    "мамыр": 4,
-    "маусым": 5,
-    "шілде": 6,
-    "тамыз": 7,
-    "қыркүйек": 8,
-    "қазан": 9,
-    "қараша": 10,
-    "желтоқсан": 11,
+    январ: 0,
+    феврал: 1,
+    март: 2,
+    апрел: 3,
+    май: 4,
+    мая: 4,
+    июн: 5,
+    июл: 6,
+    август: 7,
+    сентябр: 8,
+    октябр: 9,
+    ноябр: 10,
+    декабр: 11,
+    қаңтар: 0,
+    ақпан: 1,
+    наурыз: 2,
+    сәуір: 3,
+    мамыр: 4,
+    маусым: 5,
+    шілде: 6,
+    тамыз: 7,
+    қыркүйек: 8,
+    қазан: 9,
+    қараша: 10,
+    желтоқсан: 11,
   };
 
   for (const [key, value] of Object.entries(months)) {
@@ -311,23 +311,23 @@ function parseVisitDate(text, lang = "ru") {
   }
 
   const weekdaysRu = {
-    "понедельник": 1,
-    "вторник": 2,
-    "среда": 3,
-    "четверг": 4,
-    "пятница": 5,
-    "суббота": 6,
-    "воскресенье": 0,
+    понедельник: 1,
+    вторник: 2,
+    среда: 3,
+    четверг: 4,
+    пятница: 5,
+    суббота: 6,
+    воскресенье: 0,
   };
 
   const weekdaysKz = {
-    "дүйсенбі": 1,
-    "сейсенбі": 2,
-    "сәрсенбі": 3,
-    "бейсенбі": 4,
-    "жұма": 5,
-    "сенбі": 6,
-    "жексенбі": 0,
+    дүйсенбі: 1,
+    сейсенбі: 2,
+    сәрсенбі: 3,
+    бейсенбі: 4,
+    жұма: 5,
+    сенбі: 6,
+    жексенбі: 0,
   };
 
   for (const [dayText, weekday] of Object.entries({ ...weekdaysRu, ...weekdaysKz })) {
@@ -412,6 +412,87 @@ function parseVisitTime(text) {
   return { ok: false };
 }
 
+function normalizeHourMinute(hour, minute = 0) {
+  const hh = Math.max(0, Math.min(23, Number(hour)));
+  const mm = Math.max(0, Math.min(59, Number(minute)));
+  return {
+    value: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`,
+    hour: hh,
+    minute: mm,
+    ok: true,
+  };
+}
+
+function parseAfterTime(text) {
+  const t = normalizeText(text);
+  const match = t.match(/(?:после|кейін|кейин)\s*([0-2]?\d)\b/);
+  if (!match) return { ok: false };
+
+  const hh = Number(match[1]);
+  if (hh > 23) return { ok: false };
+
+  const suggested = hh < 20 ? hh + 1 : hh;
+  return normalizeHourMinute(suggested, 0);
+}
+
+function parsePartOfDayTime(text) {
+  const t = normalizeText(text);
+  const match = t.match(/\b([0-2]?\d)\b/);
+  if (!match) return { ok: false };
+
+  let hour = Number(match[1]);
+  if (hour > 23) return { ok: false };
+
+  if (t.includes("утра") || t.includes("таң")) {
+    if (hour === 12) hour = 0;
+    return normalizeHourMinute(hour, 0);
+  }
+
+  if (t.includes("дня") || t.includes("күндіз")) {
+    if (hour >= 1 && hour <= 8) hour += 12;
+    return normalizeHourMinute(hour, 0);
+  }
+
+  if (t.includes("вечера") || t.includes("кешке") || t.includes("кеш")) {
+    if (hour >= 1 && hour <= 11) hour += 12;
+    return normalizeHourMinute(hour, 0);
+  }
+
+  if (t.includes("ночи") || t.includes("түнде")) {
+    if (hour === 12) hour = 0;
+    return normalizeHourMinute(hour, 0);
+  }
+
+  return { ok: false };
+}
+
+function parseRangeLikeTime(text) {
+  const t = normalizeText(text);
+  const match = t.match(/\b(?:с|сағат|в)?\s*([0-2]?\d)\s*(?:до|-|—)\s*([0-2]?\d)\b/);
+  if (!match) return { ok: false };
+
+  const fromHour = Number(match[1]);
+  if (fromHour > 23) return { ok: false };
+
+  return normalizeHourMinute(fromHour, 0);
+}
+
+function parseSmartDateTime(text, lang = "ru") {
+  const date = parseVisitDate(text, lang);
+
+  let time = parseVisitTime(text);
+  if (!time.ok) time = parseAfterTime(text);
+  if (!time.ok) time = parsePartOfDayTime(text);
+  if (!time.ok) time = parseRangeLikeTime(text);
+
+  return {
+    hasDate: date.ok,
+    hasTime: time.ok,
+    date,
+    time,
+  };
+}
+
 function isWithinClinicHours(parsedTime) {
   if (!parsedTime?.ok) return false;
 
@@ -422,17 +503,39 @@ function isWithinClinicHours(parsedTime) {
   return total >= start && total <= end;
 }
 
-function getClinicWorkingHoursReply(lang = "ru") {
+function getNearestClinicTimeOptions(baseHour = 12) {
+  const options = [];
+  const allowed = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+
+  const sorted = allowed
+    .map((h) => ({ h, diff: Math.abs(h - baseHour) }))
+    .sort((a, b) => a.diff - b.diff)
+    .slice(0, 3)
+    .map((x) => `${String(x.h).padStart(2, "0")}:00`);
+
+  for (const item of sorted) {
+    if (!options.includes(item)) options.push(item);
+  }
+
+  return options;
+}
+
+function getClinicAlternativeTimeReply(lang = "ru", parsedTime = null) {
+  const baseHour = parsedTime?.hour ?? 12;
+  const options = getNearestClinicTimeOptions(baseHour);
+
   if (lang === "kz") {
     return (
-      "Клиника 09:00-ден 20:00-ге дейін жұмыс істейді 🌿\n\n" +
-      "Осы аралықтағы ыңғайлы уақытты жазыңыз.\nМысалы: 12:00"
+      `Клиника 09:00-ден 20:00-ге дейін жұмыс істейді 🌿\n\n` +
+      `Мына уақыттардың бірін таңдауға болады:\n` +
+      `${options.map((x) => `• ${x}`).join("\n")}`
     );
   }
 
   return (
-    "Клиника работает с 09:00 до 20:00 🌿\n\n" +
-    "Напишите, пожалуйста, удобное время в этом диапазоне.\nНапример: 12:00"
+    `Клиника работает с 09:00 до 20:00 🌿\n\n` +
+    `Можно выбрать одно из ближайших удобных времен:\n` +
+      `${options.map((x) => `• ${x}`).join("\n")}`
   );
 }
 
@@ -473,8 +576,10 @@ function clinicShouldUseAI(text, session) {
 
   if (blockedSteps.includes(step)) return false;
   if (looksLikePhone(text)) return false;
-  if (isGreeting(text)) return false;
-  if (t.length < 8) return false;
+  if (t.length < 6) return false;
+
+  const hardScenarioSignals = ["без фото", "фото жоқ", "да", "нет", "иә", "жоқ"];
+  if (hardScenarioSignals.includes(t)) return false;
 
   const aiSignals = [
     "сколько",
@@ -497,9 +602,13 @@ function clinicShouldUseAI(text, session) {
     "обучение",
     "курс",
     "семинар",
+    "мастер класс",
+    "мастер-класс",
     "хочу узнать",
     "расскажите",
     "подскажите подробнее",
+    "это правда",
+    "есть ли гарантия",
     "қанша",
     "бағасы",
     "ауыра ма",
@@ -516,19 +625,19 @@ function clinicShouldUseAI(text, session) {
 function getClinicStepReminder(step, lang = "ru") {
   const reminders = {
     ru: {
-      ask_service: "Если удобно, напишите, пожалуйста, какая процедура вас интересует.",
+      ask_service: "Чтобы двинуться дальше, напишите, пожалуйста, какая процедура вас интересует.",
       ask_photo: "Если удобно, отправьте фото зоны или просто напишите: Без фото.",
-      ask_day: "Напишите, пожалуйста, удобный день для консультации.",
-      ask_time: "И напишите удобное время. Например: 12:00",
+      ask_day: "Напишите, пожалуйста, удобный день для консультации. Например: завтра, понедельник, 19 апреля.",
+      ask_time: "И напишите удобное время. Например: 12:00 или завтра в 15:00.",
       ask_name_age: "И напишите, пожалуйста, как к вам обращаться и ваш возраст.",
       training_name: "И напишите, пожалуйста, как к вам обращаться.",
       training_phone: "И напишите, пожалуйста, номер телефона для связи.",
     },
     kz: {
-      ask_service: "Ыңғайлы болса, қай процедура қызықтыратынын жазыңыз.",
+      ask_service: "Әрі қарай жалғастыру үшін қай процедура қызықтыратынын жазыңыз.",
       ask_photo: "Ыңғайлы болса, фото жіберіңіз немесе: Фото жоқ деп жазыңыз.",
-      ask_day: "Консультацияға ыңғайлы күніңізді жазыңыз.",
-      ask_time: "Және ыңғайлы уақытыңызды жазыңыз. Мысалы: 12:00",
+      ask_day: "Консультацияға ыңғайлы күніңізді жазыңыз. Мысалы: ертең, дүйсенбі, 19 сәуір.",
+      ask_time: "Және ыңғайлы уақытыңызды жазыңыз. Мысалы: 12:00 немесе ертең 15:00.",
       ask_name_age: "Және өз атыңыз бен жасыңызды жазыңыз.",
       training_name: "Және өз атыңызды жазыңыз.",
       training_phone: "Және байланыс үшін телефон нөміріңізді жазыңыз.",
@@ -547,13 +656,15 @@ async function tryClinicAIReply({ text, session, lang }) {
         ...session,
         language: lang,
         aiInstructions:
-          "Ты Алия, ассистент клиники Dr.Aitimbetova. " +
-          "Отвечай тепло, по делу и коротко. " +
+          "Ты Алия, сильный и живой ассистент премиальной клиники Dr.Aitimbetova. " +
+          "Стиль: спокойный, уверенный, заботливый, без воды, без робота. " +
+          "Отвечай коротко, по сути, максимум 2-4 абзаца. " +
           "Не ставь диагноз. " +
-          "Не обещай результат операции. " +
+          "Не обещай медицинский результат. " +
           "Не называй точную цену без консультации и оценки зоны. " +
           "Если вопрос про обучение, скажи, что администратор свяжется для уточнения программы, формата, стоимости и ближайших дат. " +
-          "После ответа мягко возвращай человека к записи.",
+          "Если вопрос про процедуру, сначала коротко ответь по сути, потом мягко верни человека к следующему шагу записи. " +
+          "Не пиши как автоответчик. Не используй сухие формулировки вроде 'заявка принята'.",
       },
     });
 
@@ -777,9 +888,9 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   }
 
   if (session?.step === "ask_day") {
-    const parsedDate = parseVisitDate(text, lang);
+    const smart = parseSmartDateTime(text, lang);
 
-    if (!parsedDate.ok) {
+    if (!smart.hasDate) {
       return {
         project: "clinic",
         result: {
@@ -795,6 +906,44 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       };
     }
 
+    if (smart.hasTime) {
+      if (!isWithinClinicHours(smart.time)) {
+        return {
+          project: "clinic",
+          result: {
+            reply: getClinicAlternativeTimeReply(lang, smart.time),
+            nextStep: "ask_time",
+            mode: "scenario",
+            language: lang,
+            data: {
+              ...currentData,
+              visitDay: smart.date.value,
+              visitDateIso: smart.date.iso,
+              timing: smart.date.value,
+            },
+          },
+        };
+      }
+
+      return {
+        project: "clinic",
+        result: {
+          reply: prompts.askProject,
+          nextStep: "ask_name_age",
+          mode: "scenario",
+          language: lang,
+          data: {
+            ...currentData,
+            visitDay: smart.date.value,
+            visitDateIso: smart.date.iso,
+            timing: smart.date.value,
+            visitTime: smart.time.value,
+            preferredTime: smart.time.value,
+          },
+        },
+      };
+    }
+
     return {
       project: "clinic",
       result: {
@@ -804,16 +953,76 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         language: lang,
         data: {
           ...currentData,
-          visitDay: parsedDate.value,
-          visitDateIso: parsedDate.iso,
-          timing: parsedDate.value,
+          visitDay: smart.date.value,
+          visitDateIso: smart.date.iso,
+          timing: smart.date.value,
         },
       },
     };
   }
 
   if (session?.step === "ask_time") {
-    const parsedTime = parseVisitTime(text);
+    const smart = parseSmartDateTime(text, lang);
+    const parsedTime = smart.hasTime ? smart.time : { ok: false };
+
+    if (smart.hasDate && !currentData.visitDay) {
+      if (!parsedTime.ok) {
+        return {
+          project: "clinic",
+          result: {
+            reply:
+              lang === "kz"
+                ? "Уақытты да жазыңызшы 🌿\nМысалы: 12:00"
+                : "Напишите ещё и время 🌿\nНапример: 12:00",
+            nextStep: "ask_time",
+            mode: "scenario",
+            language: lang,
+            data: {
+              ...currentData,
+              visitDay: smart.date.value,
+              visitDateIso: smart.date.iso,
+              timing: smart.date.value,
+            },
+          },
+        };
+      }
+
+      if (!isWithinClinicHours(parsedTime)) {
+        return {
+          project: "clinic",
+          result: {
+            reply: getClinicAlternativeTimeReply(lang, parsedTime),
+            nextStep: "ask_time",
+            mode: "scenario",
+            language: lang,
+            data: {
+              ...currentData,
+              visitDay: smart.date.value,
+              visitDateIso: smart.date.iso,
+              timing: smart.date.value,
+            },
+          },
+        };
+      }
+
+      return {
+        project: "clinic",
+        result: {
+          reply: prompts.askProject,
+          nextStep: "ask_name_age",
+          mode: "scenario",
+          language: lang,
+          data: {
+            ...currentData,
+            visitDay: smart.date.value,
+            visitDateIso: smart.date.iso,
+            timing: smart.date.value,
+            visitTime: parsedTime.value,
+            preferredTime: parsedTime.value,
+          },
+        },
+      };
+    }
 
     if (!parsedTime.ok) {
       return {
@@ -821,8 +1030,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         result: {
           reply:
             lang === "kz"
-              ? "Уақытты ыңғайлы форматта жазыңызшы 🌿\nМысалы: 12:00"
-              : "Напишите, пожалуйста, время в удобном формате 🌿\nНапример: 12:00",
+              ? "Уақытты ыңғайлы форматта жазыңызшы 🌿\nМысалы: 12:00, 15:30, кешкі 6"
+              : "Напишите, пожалуйста, время в удобном формате 🌿\nНапример: 12:00, 15:30, вечером в 6",
           nextStep: "ask_time",
           mode: "scenario",
           language: lang,
@@ -835,7 +1044,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       return {
         project: "clinic",
         result: {
-          reply: getClinicWorkingHoursReply(lang),
+          reply: getClinicAlternativeTimeReply(lang, parsedTime),
           nextStep: "ask_time",
           mode: "scenario",
           language: lang,

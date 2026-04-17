@@ -7,40 +7,51 @@ async function sendClinicTelegramLead(lead = {}) {
 
     if (!token || !chatId) {
       console.log("⚠️ Clinic Telegram not configured");
-      console.log("TOKEN:", token);
-      console.log("CHAT_ID:", chatId);
       return false;
     }
 
-    const text = `
-🌿 Новая заявка по клинике
+    const leadType = lead.leadType || "consultation";
 
-Имя: ${lead.name || "Не указано"}
-Телефон: ${lead.phone || lead.whatsapp || "Не указано"}
-Город: ${lead.city || "Не указано"}
-Услуга: ${lead.service || "Не указано"}
-Консультация: ${lead.hadConsultation || "Не указано"}
-Фото: ${lead.photoStatus || "Не указано"}
-Когда: ${lead.visitTime || "Не указано"}
-WhatsApp: ${lead.whatsapp || "Не указано"}
-`;
+    const lines =
+      leadType === "training"
+        ? [
+            "🎓 Новая заявка по обучению",
+            "",
+            `Имя: ${lead.name || "Не указано"}`,
+            `Телефон: ${lead.phone || lead.whatsapp || "Не указано"}`,
+            `Город: ${lead.city || lead.location || "Не указано"}`,
+            `Интерес: ${lead.service || lead.projectDetails || "Не указано"}`,
+            `WhatsApp: ${lead.whatsapp || "Не указано"}`,
+          ]
+        : [
+            "🌿 Новая заявка по клинике",
+            "",
+            "Тип: Консультация / процедура",
+            `Имя: ${lead.name || "Не указано"}`,
+            `Телефон: ${lead.phone || lead.whatsapp || "Не указано"}`,
+            `Город: ${lead.city || lead.location || "Не указано"}`,
+            `Услуга: ${lead.service || lead.projectDetails || "Не указано"}`,
+            `Фото: ${lead.photoStatus || "Не указано"}`,
+            `Дата: ${lead.visitDay || "Не указано"}`,
+            `Время: ${lead.visitTime || lead.preferredTime || "Не указано"}`,
+            `WhatsApp: ${lead.whatsapp || "Не указано"}`,
+          ];
 
-    const res = await axios.post(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        chat_id: chatId,
-        text,
-      }
-    );
+    const text = lines.join("\n");
 
-    console.log("✅ SENT:", res.data);
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId,
+      text,
+    });
+
+    console.log("✅ Clinic Telegram lead sent");
     return true;
-
   } catch (error) {
-    console.error("❌ ERROR:");
-    console.error(error.response?.data || error.message);
+    console.error("❌ Clinic Telegram error:", error.response?.data || error.message);
     return false;
   }
 }
 
-module.exports = { sendClinicTelegramLead };
+module.exports = {
+  sendClinicTelegramLead,
+};
