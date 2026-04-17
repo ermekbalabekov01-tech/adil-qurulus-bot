@@ -55,6 +55,7 @@ function isClinicAdStarter(text = "") {
   const t = normalizeText(text);
 
   return (
+    t.includes("Здравствуйте! Можно узнать об этом подробнее?") ||
     t.includes("можно узнать об этом подробнее") ||
     t.includes("можно узнать подробнее") ||
     t.includes("расскажите подробнее") ||
