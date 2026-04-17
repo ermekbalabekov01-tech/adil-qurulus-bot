@@ -705,6 +705,7 @@ async function tryClinicAIReply({ text, session, lang }) {
           "Не называй точную цену без консультации и оценки зоны. " +
           "Если вопрос про обучение, скажи, что администратор свяжется для уточнения программы, формата, стоимости и ближайших дат. " +
           "Если вопрос про процедуру, сначала коротко ответь по сути, потом мягко верни человека к следующему шагу записи. " +
+          "Если человек спрашивает адрес, локацию, как добраться или Instagram — отвечай уверенно и коротко. " +
           "Не пиши как автоответчик. Не используй сухие формулировки вроде 'заявка принята'.",
       },
     });
@@ -719,6 +720,60 @@ async function tryClinicAIReply({ text, session, lang }) {
 async function routeClinicMessage({ text, session, projectConfig, lang }) {
   const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
   const currentData = session?.data || {};
+  const t = normalizeText(text);
+  const mapUrl = process.env.CLINIC_2GIS_URL || "https://2gis.kz/";
+  const instagramUrl = process.env.CLINIC_INSTAGRAM_URL || "https://www.instagram.com/";
+
+  if (
+    t.includes("где вы") ||
+    t.includes("где находитесь") ||
+    t.includes("адрес") ||
+    t.includes("локация") ||
+    t.includes("как добраться") ||
+    t.includes("где именно") ||
+    t.includes("қайда") ||
+    t.includes("мекенжай")
+  ) {
+    const reply =
+      lang === "kz"
+        ? `Біз Астанада орналасқанбыз 🌿\n\nМіне, нақты локация:\n${mapUrl}\n\nҚаласаңыз, ыңғайлы күн мен уақытты бірден қарайық 🙂`
+        : `Мы находимся в Астане 🌿\n\nВот наша точная локация:\n${mapUrl}\n\nЕсли хотите, можем сразу подобрать вам удобный день и время 🙂`;
+
+    return {
+      project: "clinic",
+      result: {
+        reply,
+        nextStep: session?.step || "ask_city",
+        mode: session?.mode || "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
+
+  if (
+    t.includes("инстаграм") ||
+    t.includes("instagram") ||
+    t.includes("работы") ||
+    t.includes("кейсы") ||
+    t.includes("примеры")
+  ) {
+    const reply =
+      lang === "kz"
+        ? `Әрине 🌿\n\nМіне біздің Instagram:\n${instagramUrl}\n\nҚаласаңыз, осы жерден-ақ процедура бойынша бағыт беріп, консультацияға жазып қоямын 🙂`
+        : `Конечно 🌿\n\nВот наш Instagram:\n${instagramUrl}\n\nЕсли хотите, я здесь же подскажу по процедуре и помогу записаться на консультацию 🙂`;
+
+    return {
+      project: "clinic",
+      result: {
+        reply,
+        nextStep: session?.step || "ask_city",
+        mode: session?.mode || "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
 
   if (!session?.language) {
     const detected = detectLanguage(text, projectConfig);
@@ -1153,8 +1208,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
 
     const finalReply =
       lang === "kz"
-        ? `Рақмет 🌿\n\nСізді алдын ала консультацияға жаздым:\n• Қала: ${city}\n• Процедура: ${service}\n• Күні: ${day}\n• Уақыты: ${time}\n\nАдминистратор жақын арада растау үшін хабарласады.`
-        : `Спасибо 🌿\n\nПредварительно записала вас на консультацию:\n• Город: ${city}\n• Услуга: ${service}\n• Дата: ${day}\n• Время: ${time}\n\nАдминистратор свяжется с вами в ближайшее время для подтверждения записи.`;
+        ? `Рақмет 🌿\n\nСізді алдын ала консультацияға жаздым:\n• Қала: ${city}\n• Процедура: ${service}\n• Күні: ${day}\n• Уақыты: ${time}\n\nМіне біздің локация:\n${mapUrl}\n\nАдминистратор жақын арада растау үшін хабарласады.`
+        : `Спасибо 🌿\n\nПредварительно записала вас на консультацию:\n• Город: ${city}\n• Услуга: ${service}\n• Дата: ${day}\n• Время: ${time}\n\nВот наша локация:\n${mapUrl}\n\nАдминистратор свяжется с вами в ближайшее время для подтверждения записи.`;
 
     return {
       project: "clinic",
