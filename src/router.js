@@ -1,18 +1,22 @@
 const projects = require("./config/projects.config");
 const { getAIReply } = require("./services/ai.service");
 
-function normalizeText(text) {
-  return String(text || "")
+/* =========================
+   BASIC HELPERS
+========================= */
+
+function normalizeText(text = "") {
+  return String(text)
     .trim()
     .toLowerCase()
     .replace(/[ʼ'`]/g, "")
     .replace(/\s+/g, " ");
 }
 
-function cleanGreetingText(text) {
-  return String(text || "")
+function cleanGreetingText(text = "") {
+  return String(text)
     .toLowerCase()
-    .replace(/[^a-zа-яёәіңғүұқөһі0-9\s./:-]/gi, " ")
+    .replace(/[^a-zа-яёәіңғүұқөһі0-9\s./,:-]/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -96,26 +100,15 @@ function looksLikePhone(text) {
   return n.length >= 10 && n.length <= 15;
 }
 
-function containsUsefulConstructionData(text) {
-  const t = normalizeText(text);
+function extractName(text) {
+  const cleaned = String(text || "")
+    .replace(/[^\p{L}\s-]/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 
-  return (
-    /\d/.test(t) ||
-    t.includes("фундамент") ||
-    t.includes("дом") ||
-    t.includes("коттедж") ||
-    t.includes("баня") ||
-    t.includes("үй") ||
-    t.includes("плита") ||
-    t.includes("лента") ||
-    t.includes("сваи") ||
-    t.includes("размер") ||
-    t.includes("размеры") ||
-    t.includes("материал") ||
-    t.includes("газоблок") ||
-    t.includes("кирпич") ||
-    t.includes("бетон")
-  );
+  if (!cleaned) return "";
+  const parts = cleaned.split(" ");
+  return parts.slice(0, 2).join(" ");
 }
 
 function detectIntent(text, projectConfig) {
@@ -130,75 +123,13 @@ function detectIntent(text, projectConfig) {
   return null;
 }
 
-function isClinicAdStarter(text = "") {
-  const t = normalizeText(text);
-
-  return (
-    t.includes("Здравствуйте! Можно узнать об этом подробнее?") ||
-    t.includes("можно узнать подробнее") ||
-    t.includes("расскажите подробнее") ||
-    t.includes("хочу узнать подробнее") ||
-    t === "подробнее"
-  );
+function hasQuestionMark(text = "") {
+  return String(text).includes("?");
 }
 
-function getConstructionOfficialGreeting(lang = "ru", islamic = false) {
-  if (lang === "kz") {
-    if (islamic) {
-      return (
-        "Уағалейкум ассалам 🤝\n\n" +
-        "Adil Qurulus компаниясы байланыста.\n" +
-        "Астана және жақын аймақтар бойынша үй, коттедж және фундамент құрылысына қатысты сұрақтарыңызға бағыт береміз.\n\n" +
-        "Қысқаша жазыңыз: не қызықтырады — бірден нақтылап жауап беремін."
-      );
-    }
-
-    return (
-      "Сәлеметсіз бе 👋\n\n" +
-      "Adil Qurulus компаниясы байланыста.\n" +
-      "Астана және жақын аймақтар бойынша үй, коттедж және фундамент құрылысы бойынша бағыт береміз.\n\n" +
-      "Қысқаша жазыңыз: не қызықтырады — бірден нақтылап жауап беремін."
-    );
-  }
-
-  if (islamic) {
-    return (
-      "Ва алейкум ассалам 🤝\n\n" +
-      "Компания Adil Qurulus на связи.\n" +
-      "Мы консультируем по строительству домов, коттеджей и фундаментным работам в Астане и ближайших пригородах.\n\n" +
-      "Напишите коротко, что вас интересует, и я сразу сориентирую."
-    );
-  }
-
-  return (
-    "Здравствуйте 👋\n\n" +
-    "Компания Adil Qurulus на связи.\n" +
-    "Консультируем по строительству домов, коттеджей и фундаментным работам в Астане и ближайших пригородах.\n\n" +
-    "Напишите коротко, что вас интересует, и я сразу сориентирую."
-  );
-}
-
-function getDeEscalationReply(lang = "ru") {
-  if (lang === "kz") {
-    return (
-      "Түсіндім, артық сұрақпен шаршатпаймын 🙏\n\n" +
-      "Қысқаша жазыңыз:\n" +
-      "1) не салу керек\n" +
-      "2) өлшемі немесе ауданы\n" +
-      "3) қай қала/аудан\n\n" +
-      "Сосын бірден нақты жауап берем."
-    );
-  }
-
-  return (
-    "Понял вас, лишними вопросами перегружать не буду 🙏\n\n" +
-    "Напишите коротко:\n" +
-    "1) что нужно построить\n" +
-    "2) размер или площадь\n" +
-    "3) город/район\n\n" +
-    "И я сразу дам конкретику."
-  );
-}
+/* =========================
+   SHARED QUICK REPLIES
+========================= */
 
 function buildSupportReply(lang, projectConfig, text) {
   const t = normalizeText(text);
@@ -226,15 +157,263 @@ function buildSupportReply(lang, projectConfig, text) {
   return prompts.supportGeneric;
 }
 
-function extractName(text) {
-  const cleaned = String(text || "")
-    .replace(/[^\p{L}\s-]/gu, " ")
-    .trim()
-    .replace(/\s+/g, " ");
+/* =========================
+   CONSTRUCTION HELPERS
+========================= */
 
-  if (!cleaned) return "";
-  const parts = cleaned.split(" ");
-  return parts[0] || cleaned;
+function getConstructionOfficialGreeting(lang = "ru", islamic = false) {
+  if (lang === "kz") {
+    if (islamic) {
+      return (
+        "Уағалейкум ассалам 🤝\n\n" +
+        "Adil Qurulus компаниясы байланыста.\n" +
+        "Астана және жақын аймақтар бойынша үй, коттедж және фундамент құрылысына қатысты нақты бағыт береміз.\n\n" +
+        "Қысқаша жазыңыз: не керек, қай жерде, шамамен қандай көлем — бірден нақтылап жауап беремін."
+      );
+    }
+
+    return (
+      "Сәлеметсіз бе 👋\n\n" +
+      "Adil Qurulus компаниясы байланыста.\n" +
+      "Астана және жақын аймақтар бойынша үй, коттедж және фундамент құрылысы бойынша нақты бағыт береміз.\n\n" +
+      "Қысқаша жазыңыз: не керек, қай жерде, шамамен қандай көлем — бірден нақтылап жауап беремін."
+    );
+  }
+
+  if (islamic) {
+    return (
+      "Ва алейкум ассалам 🤝\n\n" +
+      "Компания Adil Qurulus на связи.\n" +
+      "Мы консультируем по строительству домов, коттеджей и фундаментным работам в Астане и ближайших пригородах.\n\n" +
+      "Напишите коротко: что нужно, где участок и какой примерно объём — я сразу сориентирую."
+    );
+  }
+
+  return (
+    "Здравствуйте 👋\n\n" +
+    "Компания Adil Qurulus на связи.\n" +
+    "Консультируем по строительству домов, коттеджей и фундаментным работам в Астане и ближайших пригородах.\n\n" +
+    "Напишите коротко: что нужно, где участок и какой примерно объём — я сразу сориентирую."
+  );
+}
+
+function getDeEscalationReply(lang = "ru") {
+  if (lang === "kz") {
+    return (
+      "Түсіндім, артық айналдырмаймын 🙏\n\n" +
+      "Қысқаша жазыңыз:\n" +
+      "1) не салу керек\n" +
+      "2) қай жерде\n" +
+      "3) шамамен көлемі\n\n" +
+      "Сосын бірден нақты жауап берем."
+    );
+  }
+
+  return (
+    "Понял вас, без лишних кругов 🙏\n\n" +
+    "Напишите коротко:\n" +
+    "1) что нужно построить\n" +
+    "2) где участок\n" +
+    "3) примерный размер\n\n" +
+    "И я сразу дам конкретику."
+  );
+}
+
+function containsUsefulConstructionData(text) {
+  const t = normalizeText(text);
+
+  return (
+    /\d/.test(t) ||
+    t.includes("фундамент") ||
+    t.includes("дом") ||
+    t.includes("коттедж") ||
+    t.includes("баня") ||
+    t.includes("участок") ||
+    t.includes("соток") ||
+    t.includes("үй") ||
+    t.includes("жер") ||
+    t.includes("плита") ||
+    t.includes("лента") ||
+    t.includes("сваи") ||
+    t.includes("размер") ||
+    t.includes("размеры") ||
+    t.includes("материал") ||
+    t.includes("газоблок") ||
+    t.includes("кирпич") ||
+    t.includes("бетон") ||
+    t.includes("астана") ||
+    t.includes("косшы")
+  );
+}
+
+function parseConstructionInfo(text = "", currentData = {}) {
+  const t = normalizeText(text);
+  const data = { ...currentData };
+
+  if (!data.intent) {
+    if (
+      t.includes("дом") ||
+      t.includes("үй")
+    ) data.intent = "house";
+
+    if (
+      t.includes("коттедж")
+    ) data.intent = "cottage";
+
+    if (
+      t.includes("фундамент") ||
+      t.includes("лента") ||
+      t.includes("сваи") ||
+      t.includes("плита")
+    ) data.intent = "foundation";
+
+    if (
+      t.includes("консультация") ||
+      t.includes("кеңес")
+    ) data.intent = "consultation";
+  }
+
+  const areaMatch =
+    t.match(/\b(\d{2,4})\s*(?:кв\.?\s*м|кв м|м2|м²)\b/i) ||
+    t.match(/\b(\d{2,4})\s*(?:квадрат|квадратов)\b/i);
+
+  if (areaMatch && !data.size) {
+    data.size = `${areaMatch[1]} м²`;
+  }
+
+  const areaRangeMatch = t.match(/\b(\d{2,4})\s*[-–—]\s*(\d{2,4})\s*(?:кв\.?\s*м|кв м|м2|м²)?\b/i);
+  if (areaRangeMatch && !data.size) {
+    data.size = `${areaRangeMatch[1]}-${areaRangeMatch[2]} м²`;
+  }
+
+  const sotokMatch = t.match(/\b(\d{1,3})\s*сот(?:ок|ки|ка)?\b/i);
+  if (sotokMatch && !data.plot) {
+    data.plot = `${sotokMatch[1]} соток`;
+  }
+
+  const startSignals = [
+    "в этом году",
+    "весной",
+    "летом",
+    "осенью",
+    "зимой",
+    "сейчас",
+    "скоро",
+    "ближайшее время",
+    "в следующем месяце",
+    "после",
+    "через",
+  ];
+  if (!data.timing && startSignals.some((x) => t.includes(x))) {
+    data.timing = text;
+  }
+
+  const locations = [
+    "астана",
+    "косшы",
+    "ильинка",
+    "талапкер",
+    "карагайлы",
+    "караоткель",
+    "участок",
+    "левый берег",
+    "правый берег",
+  ];
+  if (!data.location && locations.some((x) => t.includes(x))) {
+    data.location = text;
+  }
+
+  if (!data.projectDetails && text.length > 3) {
+    data.projectDetails = text;
+  }
+
+  return data;
+}
+
+function countConstructionSignals(data = {}) {
+  let score = 0;
+  if (data.intent) score += 1;
+  if (data.size) score += 1;
+  if (data.plot) score += 1;
+  if (data.location) score += 1;
+  if (data.timing) score += 1;
+  return score;
+}
+
+function shouldUseConstructionAI(text, session = {}) {
+  const t = normalizeText(text);
+  const step = session?.step || "start";
+
+  if (looksLikePhone(text)) return false;
+  if (["language_select", "start", "ask_phone", "completed", "done"].includes(step)) return false;
+
+  const aiSignals = [
+    "ты бот",
+    "это бот",
+    "сколько стоит",
+    "цена",
+    "стоимость",
+    "примерно сколько",
+    "без проекта можно",
+    "если проекта нет",
+    "какой фундамент лучше",
+    "какой материал лучше",
+    "срок строительства",
+    "какие районы",
+    "работаете ли",
+    "почему так",
+    "в чем разница",
+    "как лучше",
+    "есть ли гарантия",
+    "можно ли в рассрочку",
+    "қалай",
+    "бағасы",
+    "қанша",
+  ];
+
+  return aiSignals.some((w) => t.includes(w));
+}
+
+async function tryConstructionAIReply({ text, session, lang }) {
+  try {
+    const aiReply = await getAIReply({
+      project: "construction",
+      message: text,
+      session: {
+        ...session,
+        language: lang,
+        aiInstructions:
+          "Ты сильный и деловой менеджер крупной строительной компании Adil Qurulus. " +
+          "Главная цель — не болтать, а вести клиента к заявке. " +
+          "Отвечай коротко, по делу, уверенно, максимум 2-3 коротких абзаца. " +
+          "Не дублируй приветствия. " +
+          "После ответа мягко, но уверенно переводи клиента к следующему шагу: локация, площадь, имя, телефон. " +
+          "Если клиент уже тёплый, не растягивай диалог — подводи к контакту. " +
+          "Не пиши как бот и не уходи в длинные объяснения.",
+      },
+    });
+
+    return aiReply || "";
+  } catch (error) {
+    console.error("❌ construction AI error:", error.message);
+    return "";
+  }
+}
+
+/* =========================
+   CLINIC HELPERS
+========================= */
+
+function isClinicAdStarter(text = "") {
+  const t = normalizeText(text);
+
+  return (
+    t.includes("можно узнать об этом подробнее") ||
+    t.includes("можно узнать подробнее") ||
+    t.includes("расскажите подробнее") ||
+    t.includes("хочу узнать подробнее") ||
+    t === "подробнее"
+  );
 }
 
 function monthNumberByWord(text) {
@@ -288,38 +467,15 @@ function monthNumberByWord(text) {
 function formatDateForUser(date, lang = "ru") {
   const d = new Date(date);
   const monthsRu = [
-    "января",
-    "февраля",
-    "марта",
-    "апреля",
-    "мая",
-    "июня",
-    "июля",
-    "августа",
-    "сентября",
-    "октября",
-    "ноября",
-    "декабря",
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
   ];
   const monthsKz = [
-    "қаңтар",
-    "ақпан",
-    "наурыз",
-    "сәуір",
-    "мамыр",
-    "маусым",
-    "шілде",
-    "тамыз",
-    "қыркүйек",
-    "қазан",
-    "қараша",
-    "желтоқсан",
+    "қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым",
+    "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан",
   ];
 
-  if (lang === "kz") {
-    return `${d.getDate()} ${monthsKz[d.getMonth()]}`;
-  }
-
+  if (lang === "kz") return `${d.getDate()} ${monthsKz[d.getMonth()]}`;
   return `${d.getDate()} ${monthsRu[d.getMonth()]}`;
 }
 
@@ -329,51 +485,29 @@ function parseVisitDate(text, lang = "ru") {
   now.setHours(0, 0, 0, 0);
 
   if (t.includes("сегодня") || t.includes("бүгін")) {
-    return {
-      ok: true,
-      value: formatDateForUser(now, lang),
-      iso: now.toISOString().slice(0, 10),
-    };
+    return { ok: true, value: formatDateForUser(now, lang), iso: now.toISOString().slice(0, 10) };
   }
 
   if (t.includes("завтра") || t.includes("ертең")) {
     const d = new Date(now);
     d.setDate(d.getDate() + 1);
-    return {
-      ok: true,
-      value: formatDateForUser(d, lang),
-      iso: d.toISOString().slice(0, 10),
-    };
+    return { ok: true, value: formatDateForUser(d, lang), iso: d.toISOString().slice(0, 10) };
   }
 
   if (t.includes("послезавтра")) {
     const d = new Date(now);
     d.setDate(d.getDate() + 2);
-    return {
-      ok: true,
-      value: formatDateForUser(d, lang),
-      iso: d.toISOString().slice(0, 10),
-    };
+    return { ok: true, value: formatDateForUser(d, lang), iso: d.toISOString().slice(0, 10) };
   }
 
   const weekdaysRu = {
-    понедельник: 1,
-    вторник: 2,
-    среда: 3,
-    четверг: 4,
-    пятница: 5,
-    суббота: 6,
-    воскресенье: 0,
+    понедельник: 1, вторник: 2, среда: 3, четверг: 4,
+    пятница: 5, суббота: 6, воскресенье: 0,
   };
 
   const weekdaysKz = {
-    дүйсенбі: 1,
-    сейсенбі: 2,
-    сәрсенбі: 3,
-    бейсенбі: 4,
-    жұма: 5,
-    сенбі: 6,
-    жексенбі: 0,
+    дүйсенбі: 1, сейсенбі: 2, сәрсенбі: 3, бейсенбі: 4,
+    жұма: 5, сенбі: 6, жексенбі: 0,
   };
 
   for (const [dayText, weekday] of Object.entries({ ...weekdaysRu, ...weekdaysKz })) {
@@ -383,11 +517,7 @@ function parseVisitDate(text, lang = "ru") {
       if (diff === 0) diff = 7;
       d.setDate(d.getDate() + diff);
 
-      return {
-        ok: true,
-        value: formatDateForUser(d, lang),
-        iso: d.toISOString().slice(0, 10),
-      };
+      return { ok: true, value: formatDateForUser(d, lang), iso: d.toISOString().slice(0, 10) };
     }
   }
 
@@ -400,11 +530,7 @@ function parseVisitDate(text, lang = "ru") {
 
     const d = new Date(year, month, day);
     if (!Number.isNaN(d.getTime())) {
-      return {
-        ok: true,
-        value: formatDateForUser(d, lang),
-        iso: d.toISOString().slice(0, 10),
-      };
+      return { ok: true, value: formatDateForUser(d, lang), iso: d.toISOString().slice(0, 10) };
     }
   }
 
@@ -415,11 +541,7 @@ function parseVisitDate(text, lang = "ru") {
     const d = new Date(year, monthByWord, Number(dayOnly[1]));
     if (d < now) d.setFullYear(year + 1);
 
-    return {
-      ok: true,
-      value: formatDateForUser(d, lang),
-      iso: d.toISOString().slice(0, 10),
-    };
+    return { ok: true, value: formatDateForUser(d, lang), iso: d.toISOString().slice(0, 10) };
   }
 
   return { ok: false };
@@ -442,91 +564,17 @@ function parseVisitTime(text) {
     }
   }
 
-  return { ok: false };
-}
-
-function normalizeHourMinute(hour, minute = 0) {
-  const hh = Math.max(0, Math.min(23, Number(hour)));
-  const mm = Math.max(0, Math.min(59, Number(minute)));
-  return {
-    value: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`,
-    hour: hh,
-    minute: mm,
-    ok: true,
-  };
-}
-
-function parseAfterTime(text) {
-  const t = normalizeText(text);
-  const match = t.match(/(?:после|кейін|кейин)\s*([0-2]?\d)\b/);
-  if (!match) return { ok: false };
-
-  const hh = Number(match[1]);
-  if (hh > 23) return { ok: false };
-
-  const suggested = hh < 20 ? hh + 1 : hh;
-  return normalizeHourMinute(suggested, 0);
-}
-
-function parsePartOfDayTime(text) {
-  const t = normalizeText(text);
-  const match = t.match(/\b([0-2]?\d)\b/);
-  if (!match) return { ok: false };
-
-  let hour = Number(match[1]);
-  if (hour > 23) return { ok: false };
-
-  if (t.includes("утра") || t.includes("таң")) {
-    if (hour === 12) hour = 0;
-    return normalizeHourMinute(hour, 0);
-  }
-
-  if (t.includes("дня") || t.includes("күндіз")) {
-    if (hour >= 1 && hour <= 8) hour += 12;
-    return normalizeHourMinute(hour, 0);
-  }
-
-  if (t.includes("вечера") || t.includes("кешке") || t.includes("кеш")) {
-    if (hour >= 1 && hour <= 11) hour += 12;
-    return normalizeHourMinute(hour, 0);
-  }
-
-  if (t.includes("ночи") || t.includes("түнде")) {
-    if (hour === 12) hour = 0;
-    return normalizeHourMinute(hour, 0);
-  }
-
-  return { ok: false };
-}
-
-function parseRangeLikeTime(text) {
-  const t = normalizeText(text);
-  const match = t.match(/\b(?:с|сағат|в)?\s*([0-2]?\d)\s*(?:до|-|—)\s*([0-2]?\d)\b/);
-  if (!match) return { ok: false };
-
-  const fromHour = Number(match[1]);
-  if (fromHour > 23) return { ok: false };
-
-  return normalizeHourMinute(fromHour, 0);
-}
-
-function parseLooseHour(text) {
-  const t = normalizeText(text);
-  const direct = t.match(/\b([0-2]?\d)\b/);
-  if (!direct) return { ok: false };
-
-  const hour = Number(direct[1]);
-  if (hour > 23) return { ok: false };
-
-  if (
-    t.includes("в ") ||
-    t.includes("сағат") ||
-    t.includes("час") ||
-    t.includes("к ") ||
-    t.includes("около") ||
-    t.includes("примерно")
-  ) {
-    return normalizeHourMinute(hour, 0);
+  const hourOnly = t.match(/\b([0-2]?\d)\b/);
+  if (hourOnly && (t.includes("в ") || t.includes("час") || t.includes("сағат") || t.includes("около") || t.includes("примерно"))) {
+    const hh = Number(hourOnly[1]);
+    if (hh <= 23) {
+      return {
+        ok: true,
+        value: `${String(hh).padStart(2, "0")}:00`,
+        hour: hh,
+        minute: 0,
+      };
+    }
   }
 
   return { ok: false };
@@ -534,12 +582,7 @@ function parseLooseHour(text) {
 
 function parseSmartDateTime(text, lang = "ru") {
   const date = parseVisitDate(text, lang);
-
-  let time = parseVisitTime(text);
-  if (!time.ok) time = parseAfterTime(text);
-  if (!time.ok) time = parsePartOfDayTime(text);
-  if (!time.ok) time = parseRangeLikeTime(text);
-  if (!time.ok) time = parseLooseHour(text);
+  const time = parseVisitTime(text);
 
   return {
     hasDate: date.ok,
@@ -560,20 +603,12 @@ function isWithinClinicHours(parsedTime) {
 }
 
 function getNearestClinicTimeOptions(baseHour = 12) {
-  const options = [];
   const allowed = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
-
-  const sorted = allowed
+  return allowed
     .map((h) => ({ h, diff: Math.abs(h - baseHour) }))
     .sort((a, b) => a.diff - b.diff)
     .slice(0, 3)
     .map((x) => `${String(x.h).padStart(2, "0")}:00`);
-
-  for (const item of sorted) {
-    if (!options.includes(item)) options.push(item);
-  }
-
-  return options;
 }
 
 function getClinicAlternativeTimeReply(lang = "ru", parsedTime = null) {
@@ -583,15 +618,13 @@ function getClinicAlternativeTimeReply(lang = "ru", parsedTime = null) {
   if (lang === "kz") {
     return (
       `Клиника 09:00-ден 20:00-ге дейін жұмыс істейді 🌿\n\n` +
-      `Мына уақыттардың бірін таңдауға болады:\n` +
-      `${options.map((x) => `• ${x}`).join("\n")}`
+      `Мына уақыттардың бірін таңдауға болады:\n${options.map((x) => `• ${x}`).join("\n")}`
     );
   }
 
   return (
     `Клиника работает с 09:00 до 20:00 🌿\n\n` +
-    `Можно выбрать одно из ближайших удобных времен:\n` +
-    `${options.map((x) => `• ${x}`).join("\n")}`
+    `Можно выбрать одно из ближайших удобных времен:\n${options.map((x) => `• ${x}`).join("\n")}`
   );
 }
 
@@ -621,16 +654,7 @@ function clinicShouldUseAI(text, session) {
   const step = session?.step || "start";
   const t = normalizeText(text);
 
-  const blockedSteps = [
-    "language_select",
-    "start",
-    "ask_phone",
-    "training_phone",
-    "completed",
-    "done",
-  ];
-
-  if (blockedSteps.includes(step)) return false;
+  if (["language_select", "start", "ask_phone", "training_phone", "completed", "done"].includes(step)) return false;
   if (looksLikePhone(text)) return false;
   if (t.length < 6) return false;
 
@@ -671,8 +695,6 @@ function clinicShouldUseAI(text, session) {
     "қалай өтеді",
     "үйрету",
     "оқу",
-    "курс",
-    "семинар",
   ];
 
   return aiSignals.some((word) => t.includes(word));
@@ -683,8 +705,8 @@ function getClinicStepReminder(step, lang = "ru") {
     ru: {
       ask_service: "Чтобы двинуться дальше, напишите, пожалуйста, какая процедура вас интересует.",
       ask_photo: "Если удобно, отправьте фото зоны или просто напишите: Без фото.",
-      ask_day: "Напишите, пожалуйста, удобный день для консультации. Например: завтра, понедельник, 19 апреля.",
-      ask_time: "И напишите удобное время. Например: 12:00 или завтра в 15:00.",
+      ask_day: "Напишите, пожалуйста, удобный день. Например: завтра, понедельник, 19 апреля.",
+      ask_time: "И напишите удобное время. Например: 12:00.",
       ask_name_age: "И напишите, пожалуйста, как к вам обращаться и ваш возраст.",
       training_name: "И напишите, пожалуйста, как к вам обращаться.",
       training_phone: "И напишите, пожалуйста, номер телефона для связи.",
@@ -692,8 +714,8 @@ function getClinicStepReminder(step, lang = "ru") {
     kz: {
       ask_service: "Әрі қарай жалғастыру үшін қай процедура қызықтыратынын жазыңыз.",
       ask_photo: "Ыңғайлы болса, фото жіберіңіз немесе: Фото жоқ деп жазыңыз.",
-      ask_day: "Консультацияға ыңғайлы күніңізді жазыңыз. Мысалы: ертең, дүйсенбі, 19 сәуір.",
-      ask_time: "Және ыңғайлы уақытыңызды жазыңыз. Мысалы: 12:00 немесе ертең 15:00.",
+      ask_day: "Ыңғайлы күніңізді жазыңыз. Мысалы: ертең, дүйсенбі, 19 сәуір.",
+      ask_time: "Және ыңғайлы уақытыңызды жазыңыз. Мысалы: 12:00.",
       ask_name_age: "Және өз атыңыз бен жасыңызды жазыңыз.",
       training_name: "Және өз атыңызды жазыңыз.",
       training_phone: "Және байланыс үшін телефон нөміріңізді жазыңыз.",
@@ -713,15 +735,12 @@ async function tryClinicAIReply({ text, session, lang }) {
         language: lang,
         aiInstructions:
           "Ты Алия, сильный и живой ассистент премиальной клиники Dr.Aitimbetova. " +
-          "Стиль: спокойный, уверенный, заботливый, без воды, без робота. " +
-          "Отвечай коротко, по сути, максимум 2-4 абзаца. " +
-          "Не ставь диагноз. " +
-          "Не обещай медицинский результат. " +
-          "Не называй точную цену без консультации и оценки зоны. " +
-          "Если вопрос про обучение, скажи, что администратор свяжется для уточнения программы, формата, стоимости и ближайших дат. " +
-          "Если вопрос про процедуру, сначала коротко ответь по сути, потом мягко верни человека к следующему шагу записи. " +
-          "Если человек спрашивает адрес, локацию, как добраться или Instagram — отвечай уверенно и коротко. " +
-          "Не пиши как автоответчик. Не используй сухие формулировки вроде 'заявка принята'.",
+          "Главная цель — быстро привести клиента к записи или заявке на обучение. " +
+          "Отвечай коротко, уверенно, тепло, без воды, максимум 2-3 коротких абзаца. " +
+          "Не ставь диагноз. Не обещай медицинский результат. " +
+          "Если вопрос по обучению — дай короткий ответ и переведи к имени/телефону. " +
+          "Если вопрос по процедуре — коротко ответь по сути и мягко верни к следующему шагу записи. " +
+          "Не пиши как автоответчик.",
       },
     });
 
@@ -732,24 +751,99 @@ async function tryClinicAIReply({ text, session, lang }) {
   }
 }
 
+function parseClinicInfo(text = "", currentData = {}, lang = "ru") {
+  const t = normalizeText(text);
+  const data = { ...currentData };
+
+  if (!data.city) {
+    const cityHints = [
+      "астана",
+      "алматы",
+      "караганда",
+      "қарағанды",
+      "шымкент",
+      "актау",
+      "атырау",
+      "павлодар",
+      "семей",
+      "костанай",
+      "қостанай",
+      "кокшетау",
+      "өкемен",
+      "усть-каменогорск",
+    ];
+    if (cityHints.some((c) => t.includes(c)) || t.includes("из города") || t.includes("с города") || t.includes("қаладан")) {
+      data.city = text;
+      data.location = text;
+    }
+  }
+
+  if (!data.service) {
+    if (t.includes("волос") || t.includes("шаш")) data.service = "Пересадка волос";
+    if (t.includes("бород") || t.includes("сақал")) data.service = "Пересадка бороды";
+    if (t.includes("бров") || t.includes("қас")) data.service = "Пересадка бровей";
+    if (t.includes("ресниц") || t.includes("кірпік")) data.service = "Пересадка ресниц";
+    if (t.includes("консультац") || t.includes("кеңес")) data.service = "Консультация";
+    if (isTrainingIntent(text, data)) data.service = "Обучение";
+  }
+
+  if (!data.intent && isTrainingIntent(text, data)) {
+    data.intent = "training";
+  }
+
+  const smart = parseSmartDateTime(text, lang);
+  if (!data.visitDay && smart.hasDate) {
+    data.visitDay = smart.date.value;
+    data.visitDateIso = smart.date.iso;
+  }
+  if (!data.visitTime && smart.hasTime) {
+    data.visitTime = smart.time.value;
+    data.preferredTime = smart.time.value;
+  }
+
+  if (!data.name && /\p{L}{2,}/u.test(text) && !hasQuestionMark(text) && text.length <= 40 && !looksLikePhone(text)) {
+    const maybeName = extractName(text);
+    if (maybeName && maybeName.length >= 2 && !isGreeting(text)) {
+      data.name = maybeName;
+    }
+  }
+
+  return data;
+}
+
+function countClinicSignals(data = {}) {
+  let score = 0;
+  if (data.city) score += 1;
+  if (data.service) score += 1;
+  if (data.visitDay) score += 1;
+  if (data.visitTime) score += 1;
+  if (data.name) score += 1;
+  return score;
+}
+
+/* =========================
+   CLINIC ROUTER
+========================= */
+
 async function routeClinicMessage({ text, session, projectConfig, lang }) {
   const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
-  const currentData = session?.data || {};
+  const currentData = parseClinicInfo(text, session?.data || {}, lang);
   const t = normalizeText(text);
   const mapUrl = process.env.CLINIC_2GIS_URL || "https://2gis.kz/";
   const instagramUrl = process.env.CLINIC_INSTAGRAM_URL || "https://www.instagram.com/";
 
-  if (isClinicAdStarter(text)) {
+  if (isClinicAdStarter(text) && !session?.language) {
     return {
       project: "clinic",
       result: {
         reply:
-          lang === "kz"
-            ? "Сәлеметсіз бе 🌸\n\nМен Алия, Dr.Aitimbetova клиникасының ассистентімін.\nПроцедура бойынша қысқаша бағыт беріп, консультацияға жазылуға көмектесемін.\n\nҚай қаладансыз?"
-            : "Здравствуйте 🌸\n\nЯ Алия, ассистент клиники Dr.Aitimbetova.\nПодскажу по процедурам и помогу записаться на консультацию.\n\nСкажите, пожалуйста, из какого вы города?",
+          "Здравствуйте 🌸\n\n" +
+          "Я Алия, ассистент клиники Dr.Aitimbetova.\n" +
+          "Коротко подскажу по процедуре и помогу записаться на консультацию.\n\n" +
+          "Подскажите, пожалуйста, из какого вы города?",
         nextStep: "ask_city",
         mode: "scenario",
-        language: lang,
+        language: "ru",
         data: currentData,
       },
     };
@@ -765,15 +859,13 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     t.includes("қайда") ||
     t.includes("мекенжай")
   ) {
-    const reply =
-      lang === "kz"
-        ? `Біз Астанада орналасқанбыз 🌿\n\nМіне, нақты локация:\n${mapUrl}\n\nҚаласаңыз, ыңғайлы күн мен уақытты бірден қарайық 🙂`
-        : `Мы находимся в Астане 🌿\n\nВот наша точная локация:\n${mapUrl}\n\nЕсли хотите, можем сразу подобрать вам удобный день и время 🙂`;
-
     return {
       project: "clinic",
       result: {
-        reply,
+        reply:
+          lang === "kz"
+            ? `Біз Астанада орналасқанбыз 🌿\n\nМіне нақты локация:\n${mapUrl}\n\nҚаласаңыз, ыңғайлы күн мен уақытты бірден қарайық.`
+            : `Мы находимся в Астане 🌿\n\nВот наша точная локация:\n${mapUrl}\n\nЕсли хотите, можем сразу подобрать удобный день и время.`,
         nextStep: session?.step || "ask_city",
         mode: session?.mode || "scenario",
         language: lang,
@@ -789,15 +881,13 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     t.includes("кейсы") ||
     t.includes("примеры")
   ) {
-    const reply =
-      lang === "kz"
-        ? `Әрине 🌿\n\nМіне біздің Instagram:\n${instagramUrl}\n\nҚаласаңыз, осы жерден-ақ процедура бойынша бағыт беріп, консультацияға жазып қоямын 🙂`
-        : `Конечно 🌿\n\nВот наш Instagram:\n${instagramUrl}\n\nЕсли хотите, я здесь же подскажу по процедуре и помогу записаться на консультацию 🙂`;
-
     return {
       project: "clinic",
       result: {
-        reply,
+        reply:
+          lang === "kz"
+            ? `Әрине 🌿\n\nМіне біздің Instagram:\n${instagramUrl}\n\nҚаласаңыз, осы жерден-ақ консультацияға жазып қоямын.`
+            : `Конечно 🌿\n\nВот наш Instagram:\n${instagramUrl}\n\nЕсли хотите, здесь же помогу записаться на консультацию.`,
         nextStep: session?.step || "ask_city",
         mode: session?.mode || "scenario",
         language: lang,
@@ -848,19 +938,12 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   }
 
   if (clinicShouldUseAI(text, session)) {
-    const aiReply = await tryClinicAIReply({
-      text,
-      session,
-      lang,
-    });
-
+    const aiReply = await tryClinicAIReply({ text, session, lang });
     if (aiReply) {
-      const reminder = getClinicStepReminder(session?.step, lang);
-
       return {
         project: "clinic",
         result: {
-          reply: `${aiReply}\n\n${reminder}`,
+          reply: `${aiReply}\n\n${getClinicStepReminder(session?.step, lang)}`,
           nextStep: session?.step || "ask_service",
           mode: "scenario",
           language: lang,
@@ -884,43 +967,15 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   }
 
   if (session?.step === "start" || session?.step === "ask_city") {
-    return {
-      project: "clinic",
-      result: {
-        reply: prompts.askLocation,
-        nextStep: "ask_service",
-        mode: "scenario",
-        language: lang,
-        data: {
-          ...currentData,
-          city: text,
-          location: text,
-        },
-      },
-    };
-  }
-
-  if (session?.step === "ask_service") {
-    const intent = detectIntent(text, projectConfig) || currentData.intent;
-    const training = isTrainingIntent(text, { ...currentData, intent });
-
-    if (training) {
+    if (currentData.city) {
       return {
         project: "clinic",
         result: {
-          reply:
-            lang === "kz"
-              ? "Түсіндім 🌿\n\nОқу бойынша сұранысыңызды қабылдадым.\nЕнді өз атыңызды жазыңызшы."
-              : "Поняла 🌿\n\nПриняла ваш запрос по обучению.\nПодскажите, пожалуйста, как я могу к вам обращаться?",
-          nextStep: "training_name",
+          reply: prompts.askLocation,
+          nextStep: "ask_service",
           mode: "scenario",
           language: lang,
-          data: {
-            ...currentData,
-            intent: "training",
-            service: text,
-            projectDetails: text,
-          },
+          data: currentData,
         },
       };
     }
@@ -928,35 +983,84 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     return {
       project: "clinic",
       result: {
-        reply: prompts.askSize,
-        nextStep: "ask_photo",
+        reply:
+          lang === "kz"
+            ? "Қай қаладансыз?"
+            : "Подскажите, пожалуйста, из какого вы города?",
+        nextStep: "ask_city",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          service: text,
-          projectDetails: text,
-          intent,
+        data: currentData,
+      },
+    };
+  }
+
+  if (session?.step === "ask_service") {
+    const intent = detectIntent(text, projectConfig) || currentData.intent;
+    const training = isTrainingIntent(text, { ...currentData, intent });
+    const data = { ...currentData, intent };
+
+    if (data.service && training) {
+      return {
+        project: "clinic",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Түсіндім 🌿\n\nОқу бойынша сұранысыңызды қабылдадым.\nӨзіңізді қалай атаймыз?"
+              : "Поняла 🌿\n\nПриняла ваш запрос по обучению.\nПодскажите, пожалуйста, как я могу к вам обращаться?",
+          nextStep: "training_name",
+          mode: "scenario",
+          language: lang,
+          data: {
+            ...data,
+            leadType: "training",
+          },
         },
+      };
+    }
+
+    if (data.service) {
+      return {
+        project: "clinic",
+        result: {
+          reply: prompts.askSize,
+          nextStep: "ask_photo",
+          mode: "scenario",
+          language: lang,
+          data,
+        },
+      };
+    }
+
+    return {
+      project: "clinic",
+      result: {
+        reply: prompts.askLocation,
+        nextStep: "ask_service",
+        mode: "scenario",
+        language: lang,
+        data,
       },
     };
   }
 
   if (session?.step === "training_name") {
+    const data = {
+      ...currentData,
+      name: currentData.name || extractName(text) || text,
+    };
+
     return {
       project: "clinic",
       result: {
         reply:
           lang === "kz"
-            ? "Рақмет 🌸\n\nТелефон нөміріңізді жазыңызшы. Администратор сізбен оқу бойынша хабарласады."
-            : "Спасибо 🌸\n\nНапишите, пожалуйста, ваш номер телефона. Администратор свяжется с вами по обучению.",
+            ? "Рақмет 🌸\n\nЕнді телефон нөміріңізді жазыңызшы. Администратор оқу бойынша хабарласады."
+            : "Спасибо 🌸\n\nТеперь напишите, пожалуйста, ваш номер телефона. Администратор свяжется с вами по обучению.",
         nextStep: "training_phone",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          name: extractName(text) || text,
-        },
+        data,
       },
     };
   }
@@ -998,6 +1102,25 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   }
 
   if (session?.step === "ask_photo") {
+    const data = {
+      ...currentData,
+      photoStatus: text,
+      size: text,
+    };
+
+    if (data.visitDay && data.visitTime) {
+      return {
+        project: "clinic",
+        result: {
+          reply: prompts.askProject,
+          nextStep: "ask_name_age",
+          mode: "scenario",
+          language: lang,
+          data,
+        },
+      };
+    }
+
     return {
       project: "clinic",
       result: {
@@ -1005,32 +1128,19 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         nextStep: "ask_day",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          photoStatus: text,
-          size: text,
-        },
+        data,
       },
     };
   }
 
   if (session?.step === "ask_day") {
     const smart = parseSmartDateTime(text, lang);
+    const data = { ...currentData };
 
-    if (!smart.hasDate) {
-      return {
-        project: "clinic",
-        result: {
-          reply:
-            lang === "kz"
-              ? "Күні ыңғайлы форматта жазыңызшы 🌿\nМысалы: ертең, дүйсенбі, 19 сәуір"
-              : "Напишите, пожалуйста, дату в удобном формате 🌿\nНапример: завтра, понедельник, 19 апреля",
-          nextStep: "ask_day",
-          mode: "scenario",
-          language: lang,
-          data: currentData,
-        },
-      };
+    if (smart.hasDate) {
+      data.visitDay = smart.date.value;
+      data.visitDateIso = smart.date.iso;
+      data.timing = smart.date.value;
     }
 
     if (smart.hasTime) {
@@ -1042,16 +1152,16 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
             nextStep: "ask_time",
             mode: "scenario",
             language: lang,
-            data: {
-              ...currentData,
-              visitDay: smart.date.value,
-              visitDateIso: smart.date.iso,
-              timing: smart.date.value,
-            },
+            data,
           },
         };
       }
 
+      data.visitTime = smart.time.value;
+      data.preferredTime = smart.time.value;
+    }
+
+    if (data.visitDay && data.visitTime) {
       return {
         project: "clinic",
         result: {
@@ -1059,14 +1169,23 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
           nextStep: "ask_name_age",
           mode: "scenario",
           language: lang,
-          data: {
-            ...currentData,
-            visitDay: smart.date.value,
-            visitDateIso: smart.date.iso,
-            timing: smart.date.value,
-            visitTime: smart.time.value,
-            preferredTime: smart.time.value,
-          },
+          data,
+        },
+      };
+    }
+
+    if (!data.visitDay) {
+      return {
+        project: "clinic",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Күні ыңғайлы форматта жазыңызшы 🌿\nМысалы: ертең, дүйсенбі, 19 сәуір"
+              : "Напишите, пожалуйста, дату в удобном формате 🌿\nНапример: завтра, понедельник, 19 апреля",
+          nextStep: "ask_day",
+          mode: "scenario",
+          language: lang,
+          data,
         },
       };
     }
@@ -1078,107 +1197,52 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         nextStep: "ask_time",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          visitDay: smart.date.value,
-          visitDateIso: smart.date.iso,
-          timing: smart.date.value,
-        },
+        data,
       },
     };
   }
 
   if (session?.step === "ask_time") {
     const smart = parseSmartDateTime(text, lang);
-    const parsedTime = smart.hasTime ? smart.time : { ok: false };
+    const data = { ...currentData };
 
-    if (smart.hasDate && !currentData.visitDay) {
-      if (!parsedTime.ok) {
-        return {
-          project: "clinic",
-          result: {
-            reply:
-              lang === "kz"
-                ? "Уақытты да жазыңызшы 🌿\nМысалы: 12:00"
-                : "Напишите ещё и время 🌿\nНапример: 12:00",
-            nextStep: "ask_time",
-            mode: "scenario",
-            language: lang,
-            data: {
-              ...currentData,
-              visitDay: smart.date.value,
-              visitDateIso: smart.date.iso,
-              timing: smart.date.value,
-            },
-          },
-        };
-      }
-
-      if (!isWithinClinicHours(parsedTime)) {
-        return {
-          project: "clinic",
-          result: {
-            reply: getClinicAlternativeTimeReply(lang, parsedTime),
-            nextStep: "ask_time",
-            mode: "scenario",
-            language: lang,
-            data: {
-              ...currentData,
-              visitDay: smart.date.value,
-              visitDateIso: smart.date.iso,
-              timing: smart.date.value,
-            },
-          },
-        };
-      }
-
-      return {
-        project: "clinic",
-        result: {
-          reply: prompts.askProject,
-          nextStep: "ask_name_age",
-          mode: "scenario",
-          language: lang,
-          data: {
-            ...currentData,
-            visitDay: smart.date.value,
-            visitDateIso: smart.date.iso,
-            timing: smart.date.value,
-            visitTime: parsedTime.value,
-            preferredTime: parsedTime.value,
-          },
-        },
-      };
+    if (smart.hasDate && !data.visitDay) {
+      data.visitDay = smart.date.value;
+      data.visitDateIso = smart.date.iso;
+      data.timing = smart.date.value;
     }
 
-    if (!parsedTime.ok) {
+    if (!smart.hasTime) {
       return {
         project: "clinic",
         result: {
           reply:
             lang === "kz"
-              ? "Уақытты ыңғайлы форматта жазыңызшы 🌿\nМысалы: 12:00, 15:30, кешкі 6"
-              : "Напишите, пожалуйста, время в удобном формате 🌿\nНапример: 12:00, 15:30, вечером в 6",
+              ? "Уақытты ыңғайлы форматта жазыңызшы 🌿\nМысалы: 12:00 немесе 15:30"
+              : "Напишите, пожалуйста, время в удобном формате 🌿\nНапример: 12:00 или 15:30",
           nextStep: "ask_time",
           mode: "scenario",
           language: lang,
-          data: currentData,
+          data,
         },
       };
     }
 
-    if (!isWithinClinicHours(parsedTime)) {
+    if (!isWithinClinicHours(smart.time)) {
       return {
         project: "clinic",
         result: {
-          reply: getClinicAlternativeTimeReply(lang, parsedTime),
+          reply: getClinicAlternativeTimeReply(lang, smart.time),
           nextStep: "ask_time",
           mode: "scenario",
           language: lang,
-          data: currentData,
+          data,
         },
       };
     }
+
+    data.visitTime = smart.time.value;
+    data.preferredTime = smart.time.value;
 
     return {
       project: "clinic",
@@ -1187,16 +1251,17 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         nextStep: "ask_name_age",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          visitTime: parsedTime.value,
-          preferredTime: parsedTime.value,
-        },
+        data,
       },
     };
   }
 
   if (session?.step === "ask_name_age") {
+    const data = {
+      ...currentData,
+      name: text,
+    };
+
     return {
       project: "clinic",
       result: {
@@ -1207,10 +1272,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         nextStep: "ask_phone",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          name: text,
-        },
+        data,
       },
     };
   }
@@ -1232,10 +1294,16 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       };
     }
 
-    const day = currentData.visitDay || "Не указано";
-    const time = currentData.visitTime || currentData.preferredTime || "Не указано";
-    const city = currentData.city || currentData.location || "Не указано";
-    const service = currentData.service || currentData.projectDetails || "Не указано";
+    const data = {
+      ...currentData,
+      phone: text,
+      leadType: currentData.intent === "training" ? "training" : "consultation",
+    };
+
+    const day = data.visitDay || "Не указано";
+    const time = data.visitTime || data.preferredTime || "Не указано";
+    const city = data.city || data.location || "Не указано";
+    const service = data.service || data.projectDetails || "Не указано";
 
     const finalReply =
       lang === "kz"
@@ -1249,11 +1317,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         nextStep: "completed",
         mode: "support",
         language: lang,
-        data: {
-          ...currentData,
-          phone: text,
-          leadType: "consultation",
-        },
+        data,
       },
     };
   }
@@ -1270,9 +1334,15 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   };
 }
 
+/* =========================
+   CONSTRUCTION ROUTER
+========================= */
+
 async function routeConstructionMessage({ text, session, projectConfig, lang }) {
   const t = normalizeText(text);
-  const currentData = session?.data || {};
+  const currentData = parseConstructionInfo(text, session?.data || {});
+  const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
+  const signalCount = countConstructionSignals(currentData);
 
   if (!session?.language) {
     const detected = detectLanguage(text, projectConfig);
@@ -1344,8 +1414,24 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       result: {
         reply:
           lang === "kz"
-            ? "Біз Астана және жақын маңдағы аудандармен жұмыс істейміз 👍\n\nЕгер нақты локацияны жазсаңыз, сол жер бойынша бірден нақтылап айтамын."
-            : "Мы работаем по Астане и ближайшим пригородам 👍\n\nЕсли напишете точную локацию или район, я сразу сориентирую, работаем ли там.",
+            ? "Біз Астана және жақын маңдағы аудандармен жұмыс істейміз 👍\n\nНақты локацияны жазсаңыз, сол жер бойынша бірден нақтылап айтамын."
+            : "Мы работаем по Астане и ближайшим пригородам 👍\n\nНапишите точную локацию участка, и я сразу скажу по вашему объекту.",
+        nextStep: session?.step || "qualification",
+        mode: session?.mode || "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
+
+  if (t.includes("ты бот") || t.includes("это бот")) {
+    return {
+      project: "construction",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Мен компанияның цифрлық ассистентімін.\n\nМақсатым — сұрағыңызды тез қабылдап, менеджерге нақты мәліметпен өткізу."
+            : "Я цифровой ассистент компании.\n\nМоя задача — быстро собрать ключевые данные и передать ваш запрос менеджеру без лишней переписки.",
         nextStep: session?.step || "qualification",
         mode: session?.mode || "scenario",
         language: lang,
@@ -1380,101 +1466,189 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     };
   }
 
-  const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
+  if (shouldUseConstructionAI(text, session) && signalCount < 3) {
+    const aiReply = await tryConstructionAIReply({ text, session, lang });
+    if (aiReply) {
+      let push = "";
+      if (!currentData.location) {
+        push =
+          lang === "kz"
+            ? "\n\nНақты локацияны жазыңыз."
+            : "\n\nНапишите точную локацию участка.";
+      } else if (!currentData.size && !currentData.plot) {
+        push =
+          lang === "kz"
+            ? "\n\nШамамен көлемін жазыңыз."
+            : "\n\nНапишите примерный размер или площадь.";
+      } else if (!currentData.name) {
+        push =
+          lang === "kz"
+            ? "\n\nӨзіңізді қалай атаймыз?"
+            : "\n\nКак к вам можно обращаться?";
+      }
 
-  if (session?.step === "qualification" || session?.step === "language_select") {
-    const intent = detectIntent(t, projectConfig);
-    const nextData = { ...currentData };
-    if (intent) nextData.intent = intent;
+      return {
+        project: "construction",
+        result: {
+          reply: `${aiReply}${push}`,
+          nextStep: session?.step || "qualification",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
+  }
+
+  if (session?.step === "language_select" || session?.step === "qualification" || session?.step === "start") {
+    if (signalCount >= 3) {
+      return {
+        project: "construction",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Жақсы, мәлімет жеткілікті 👍\n\nЕнді өз атыңызды жазыңыз. Кейін менеджер нақты консультация береді."
+              : "Хорошо, данных уже достаточно 👍\n\nТеперь подскажите, как к вам можно обращаться. После этого менеджер даст точную консультацию.",
+          nextStep: "ask_name",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
+
+    if (currentData.intent && (currentData.location || currentData.size || currentData.plot)) {
+      return {
+        project: "construction",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Түсіндім 👍\n\nЕнді тағы 1-2 нақтылау:\n• учаске қай жерде\n• шамамен көлемі қандай"
+              : "Понял 👍\n\nЧтобы сразу сориентировать точнее, уточню ещё 1-2 момента:\n• где находится участок\n• какой примерно объём объекта",
+          nextStep: "collect_details",
+          mode: "scenario",
+          language: lang,
+          data: currentData,
+        },
+      };
+    }
 
     return {
       project: "construction",
       result: {
-        reply: prompts.askProject,
+        reply:
+          lang === "kz"
+            ? "Жақсы 👌\n\nНе қызықтырады:\n— Үй\n— Коттедж\n— Фундамент\n— Кеңес"
+            : "Хорошо 👌\n\nЧто вас интересует:\n— Дом\n— Коттедж\n— Фундамент\n— Консультация",
         nextStep: "ask_project",
         mode: "scenario",
         language: lang,
-        data: nextData,
+        data: currentData,
       },
     };
   }
 
   if (session?.step === "ask_project") {
+    const data = parseConstructionInfo(text, currentData);
+
+    if (countConstructionSignals(data) >= 3) {
+      return {
+        project: "construction",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Жақсы, негізгі мәліметті түсіндім 👍\n\nӨзіңізді қалай атаймыз?"
+              : "Хорошо, основную картину уже понял 👍\n\nПодскажите, как к вам можно обращаться?",
+          nextStep: "ask_name",
+          mode: "scenario",
+          language: lang,
+          data,
+        },
+      };
+    }
+
     return {
       project: "construction",
       result: {
-        reply: prompts.askLocation,
-        nextStep: "ask_location",
+        reply:
+          lang === "kz"
+            ? "Түсіндім.\n\nУчаске қай жерде және шамамен қандай көлем керек?"
+            : "Понял.\n\nПодскажите, где участок и какой примерно нужен объём?",
+        nextStep: "collect_details",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          projectDetails: text,
-        },
+        data,
       },
     };
   }
 
-  if (session?.step === "ask_location") {
-    return {
-      project: "construction",
-      result: {
-        reply: prompts.askSize,
-        nextStep: "ask_size",
-        mode: "scenario",
-        language: lang,
-        data: {
-          ...currentData,
-          location: text,
-        },
-      },
-    };
-  }
+  if (session?.step === "collect_details") {
+    const data = parseConstructionInfo(text, currentData);
 
-  if (session?.step === "ask_size") {
-    return {
-      project: "construction",
-      result: {
-        reply: prompts.askTiming,
-        nextStep: "ask_timing",
-        mode: "scenario",
-        language: lang,
-        data: {
-          ...currentData,
-          size: text,
+    if (countConstructionSignals(data) >= 3) {
+      return {
+        project: "construction",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Жақсы 👍\n\nЕнді өз атыңызды жазыңыз. Содан кейін менеджерге өткіземін."
+              : "Хорошо 👍\n\nТеперь напишите, как к вам можно обращаться. После этого передам заявку менеджеру.",
+          nextStep: "ask_name",
+          mode: "scenario",
+          language: lang,
+          data,
         },
-      },
-    };
-  }
+      };
+    }
 
-  if (session?.step === "ask_timing") {
+    if (!data.location) {
+      return {
+        project: "construction",
+        result: {
+          reply:
+            lang === "kz"
+              ? "Нақты локацияны жазыңыз."
+              : "Напишите, пожалуйста, точную локацию участка.",
+          nextStep: "collect_details",
+          mode: "scenario",
+          language: lang,
+          data,
+        },
+      };
+    }
+
     return {
       project: "construction",
       result: {
-        reply: prompts.askName,
-        nextStep: "ask_name",
+        reply:
+          lang === "kz"
+            ? "Шамамен көлемін жазыңыз. Мысалы: 90-100 м² немесе 10 соток."
+            : "Напишите примерный размер. Например: 90-100 м² или участок 10 соток.",
+        nextStep: "collect_details",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          timing: text,
-        },
+        data,
       },
     };
   }
 
   if (session?.step === "ask_name") {
+    const data = {
+      ...currentData,
+      name: extractName(text) || text,
+    };
+
     return {
       project: "construction",
       result: {
-        reply: prompts.askPhone,
+        reply:
+          lang === "kz"
+            ? "Жақсы.\n\nТелефон нөміріңізді қалдырыңыз. Менеджер сізбен байланысып, нақты консультация береді."
+            : "Хорошо.\n\nОставьте, пожалуйста, номер телефона. Менеджер свяжется с вами и даст точную консультацию.",
         nextStep: "ask_phone",
         mode: "scenario",
         language: lang,
-        data: {
-          ...currentData,
-          name: text,
-        },
+        data,
       },
     };
   }
@@ -1484,7 +1658,10 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       return {
         project: "construction",
         result: {
-          reply: prompts.askPhone,
+          reply:
+            lang === "kz"
+              ? "Телефон нөмірін ыңғайлы форматта жазыңызшы."
+              : "Пожалуйста, напишите номер телефона в удобном формате.",
           nextStep: "ask_phone",
           mode: "scenario",
           language: lang,
@@ -1511,7 +1688,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
   return {
     project: "construction",
     result: {
-      reply: projectConfig.welcome[lang],
+      reply: projectConfig.welcome[lang] || projectConfig.welcome.ru,
       nextStep: "qualification",
       mode: "scenario",
       language: lang,
@@ -1519,6 +1696,10 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     },
   };
 }
+
+/* =========================
+   ENTRY POINT
+========================= */
 
 async function routeMessage({ text, session, projectType }) {
   const projectKey = projectType || "construction";
