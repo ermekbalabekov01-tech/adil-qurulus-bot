@@ -1,104 +1,50 @@
-const axios = require('axios');
+const axios = require("axios");
 
-function escapeHtml(value = '') {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function normalizePhone(phone = '') {
-  return String(phone).replace(/\D/g, '');
-}
-
-function buildWaLink(phone = '') {
-  const clean = normalizePhone(phone);
-  if (!clean) return '';
-  return `https://wa.me/${clean}`;
-}
-
-function buildLeadText(lead = {}) {
-  const phone = lead.phone || lead.whatsapp || '';
-  const waLink = buildWaLink(phone);
-
-  const lines = [
-    '<b>🏗 Новая заявка — Adil Qurulus</b>',
-    ''
-  ];
-
-  if (lead.name) lines.push(`👤 <b>Имя:</b> ${escapeHtml(lead.name)}`);
-  if (phone) lines.push(`☎️ <b>Телефон:</b> ${escapeHtml(phone)}`);
-  if (lead.whatsapp) lines.push(`📞 <b>WhatsApp:</b> ${escapeHtml(lead.whatsapp)}`);
-  if (lead.direction) lines.push(`📂 <b>Направление:</b> ${escapeHtml(lead.direction)}`);
-  if (lead.houseStage) lines.push(`🏠 <b>Этап:</b> ${escapeHtml(lead.houseStage)}`);
-  if (lead.location) lines.push(`📍 <b>Локация:</b> ${escapeHtml(lead.location)}`);
-  if (lead.projectStatus) lines.push(`📐 <b>Проект:</b> ${escapeHtml(lead.projectStatus)}`);
-  if (lead.size) lines.push(`📏 <b>Размер:</b> ${escapeHtml(lead.size)}`);
-  if (lead.timing) lines.push(`⏳ <b>Сроки:</b> ${escapeHtml(lead.timing)}`);
-  if (lead.budget) lines.push(`💰 <b>Бюджет:</b> ${escapeHtml(lead.budget)}`);
-  if (lead.repairObject) lines.push(`🏢 <b>Объект:</b> ${escapeHtml(lead.repairObject)}`);
-  if (lead.repairType) lines.push(`🛠 <b>Тип ремонта:</b> ${escapeHtml(lead.repairType)}`);
-  if (lead.area) lines.push(`📐 <b>Площадь:</b> ${escapeHtml(lead.area)}`);
-  if (lead.serviceType) lines.push(`🔧 <b>Услуга:</b> ${escapeHtml(lead.serviceType)}`);
-  if (lead.scope) lines.push(`📝 <b>Объём работ:</b> ${escapeHtml(lead.scope)}`);
-  if (lead.calcType) lines.push(`🧮 <b>Тип расчёта:</b> ${escapeHtml(lead.calcType)}`);
-  if (lead.calcRequest) lines.push(`📋 <b>Запрос:</b> ${escapeHtml(lead.calcRequest)}`);
-
-  if (waLink) {
-    lines.push('');
-    lines.push(`👉 <a href="${escapeHtml(waLink)}">Написать клиенту в WhatsApp</a>`);
-  }
-
-  lines.push('');
-  lines.push('✅ <b>Лид зафиксирован ботом</b>');
-
-  return lines.join('\n');
-}
-
-async function sendTelegramMessage(text) {
+async function sendTelegramLead(lead = {}) {
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
 
-    console.log('📨 TELEGRAM CHAT_ID:', chatId);
-    console.log('📨 TELEGRAM TOKEN EXISTS:', !!token);
-
     if (!token || !chatId) {
-      console.log('⚠️ Telegram не настроен');
+      console.log("⚠️ Construction Telegram not configured");
       return false;
     }
 
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const isFinal = lead.telegramType === "final";
+    const header = isFinal
+      ? "✅ ФИНАЛЬНАЯ ЗАЯВКА СТРОЙКА"
+      : "🔥 НОВЫЙ ВХОД СТРОЙКА";
 
-    const response = await axios.post(
-      url,
-      {
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: false
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    const lines = [
+      header,
+      "",
+      `Имя: ${lead.name || "Не указано"}`,
+      `Телефон: ${lead.phone || "Не указано"}`,
+      `WhatsApp: ${lead.whatsapp || "Не указано"}`,
+      `Направление: ${lead.direction || "Не указано"}`,
+      `Локация: ${lead.location || "Не указано"}`,
+      `Площадь: ${lead.size || "Не указано"}`,
+      `Участок: ${lead.plot || "Не указано"}`,
+      `Сроки: ${lead.timing || "Не указано"}`,
+      `Первое сообщение: ${lead.firstMessage || "Не указано"}`,
+      `Комментарий: ${lead.projectDetails || "Не указано"}`,
+    ];
 
-    console.log('✅ TELEGRAM SENT:', response.data?.ok);
+    const text = lines.join("\n");
+
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId,
+      text,
+    });
+
+    console.log("✅ Construction Telegram lead sent");
     return true;
   } catch (error) {
-    console.error('❌ TELEGRAM ERROR:', error.response?.data || error.message);
+    console.error("❌ Telegram error:", error.response?.data || error.message);
     return false;
   }
 }
 
-async function sendTelegramLead(lead = {}) {
-  const text = buildLeadText(lead);
-  return sendTelegramMessage(text);
-}
-
 module.exports = {
-  sendTelegramMessage,
-  sendTelegramLead
+  sendTelegramLead,
 };
