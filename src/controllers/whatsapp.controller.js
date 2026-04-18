@@ -61,7 +61,8 @@ function getSession(projectKey, phone) {
       mode: "scenario",
       language: null,
       data: {},
-      leadSent: false,
+      warmLeadSent: false,
+      finalLeadSent: false,
     });
   }
 
@@ -98,11 +99,13 @@ async function safeCall(fn, label) {
 
 /* ---------------- lead builders ---------------- */
 
-function buildClinicLead(from, session) {
+function buildClinicLead(from, session = {}, incomingText = "") {
   const data = session?.data || {};
 
   return {
-    leadType: data.leadType || (data.intent === "training" ? "training" : "consultation"),
+    leadType:
+      data.leadType ||
+      (data.intent === "training" ? "training" : "consultation"),
     name: data.name || "Не указано",
     phone: data.phone || from,
     whatsapp: from,
@@ -113,10 +116,11 @@ function buildClinicLead(from, session) {
     photoStatus: data.photoStatus || data.size || "Не указано",
     visitDay: data.visitDay || data.timing || "Не указано",
     visitTime: data.visitTime || data.preferredTime || "Не указано",
+    firstMessage: incomingText || "Не указано",
   };
 }
 
-function buildConstructionLead(from, session) {
+function buildConstructionLead(from, session = {}, incomingText = "") {
   const data = session?.data || {};
 
   return {
@@ -126,46 +130,83 @@ function buildConstructionLead(from, session) {
     direction: data.intent || "Не указано",
     location: data.location || "Не указано",
     size: data.size || "Не указано",
+    plot: data.plot || "Не указано",
     timing: data.timing || "Не указано",
     projectDetails: data.projectDetails || "Не указано",
+    firstMessage: incomingText || "Не указано",
   };
 }
 
-/* ---------------- finalize ---------------- */
+/* ---------------- telegram events ---------------- */
 
-async function finalizeLead({ projectKey, from, session }) {
+async function sendWarmLead({ projectKey, from, session, incomingText }) {
+  if (projectKey === "clinic") {
+    const lead = buildClinicLead(from, session, incomingText);
+
+    return safeCall(
+      () =>
+        sendClinicTelegramLead({
+          ...lead,
+          telegramType: "warm",
+          leadType:
+            lead.leadType === "training" ? "training" : "incoming_interest",
+          projectDetails: incomingText || lead.projectDetails,
+          service: lead.service || "Первичный интерес",
+        }),
+      "CLINIC WARM LEAD"
+    );
+  }
+
+  const lead = buildConstructionLead(from, session, incomingText);
+
+  return safeCall(
+    () =>
+      sendTelegramLead({
+        ...lead,
+        telegramType: "warm",
+        direction: lead.direction || "Первичный интерес",
+        projectDetails: incomingText || lead.projectDetails,
+      }),
+    "CONSTRUCTION WARM LEAD"
+  );
+}
+
+async function sendFinalLead({ projectKey, from, session }) {
   if (projectKey === "clinic") {
     const lead = buildClinicLead(from, session);
 
-    const telegramOk = await safeCall(
-      () => sendClinicTelegramLead(lead),
-      "CLINIC TELEGRAM"
+    return safeCall(
+      () =>
+        sendClinicTelegramLead({
+          ...lead,
+          telegramType: "final",
+        }),
+      "CLINIC FINAL LEAD"
     );
-
-    return { telegramOk: !!telegramOk };
   }
 
   const lead = buildConstructionLead(from, session);
 
-  const telegramOk = await safeCall(
-    () => sendTelegramLead(lead),
-    "TELEGRAM"
+  const tg = await safeCall(
+    () =>
+      sendTelegramLead({
+        ...lead,
+        telegramType: "final",
+      }),
+    "CONSTRUCTION FINAL TELEGRAM"
   );
 
-  const bitrixOk = await safeCall(
+  const bitrix = await safeCall(
     () =>
       sendLeadToBitrix({
         name: lead.name,
         phone: lead.phone,
         comment: JSON.stringify(lead, null, 2),
       }),
-    "BITRIX"
+    "BITRIX FINAL"
   );
 
-  return {
-    telegramOk: !!telegramOk,
-    bitrixOk: !!bitrixOk,
-  };
+  return { tg, bitrix };
 }
 
 /* ---------------- whatsapp api ---------------- */
@@ -205,21 +246,20 @@ async function markMessageAsRead({ accessToken, phoneNumberId, messageId }) {
   );
 }
 
-/* ---------------- webhook verify ---------------- */
+/* ---------------- verify webhook ---------------- */
 
 function verifyWebhook(req, res) {
   try {
-    const verifyToken =
-      req.query["hub.verify_token"] || req.query.hub_verify_token;
     const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
 
-    const validToken =
+    const verifyToken =
       process.env.VERIFY_TOKEN ||
       process.env.CLINIC_VERIFY_TOKEN ||
       process.env.CONSTRUCTION_VERIFY_TOKEN;
 
-    if (mode === "subscribe" && verifyToken === validToken) {
+    if (mode === "subscribe" && token === verifyToken) {
       console.log("✅ WEBHOOK VERIFIED");
       return res.status(200).send(challenge);
     }
@@ -232,7 +272,7 @@ function verifyWebhook(req, res) {
   }
 }
 
-/* ---------------- webhook handler ---------------- */
+/* ---------------- main webhook ---------------- */
 
 async function handleWebhook(req, res) {
   try {
@@ -240,7 +280,6 @@ async function handleWebhook(req, res) {
 
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
     if (!value) return;
-
     if (!value.messages || !value.messages.length) return;
 
     const message = value.messages[0];
@@ -285,31 +324,47 @@ async function handleWebhook(req, res) {
       "MARK AS READ"
     );
 
+    /* 1. СРАЗУ отправляем в телеграм первое касание */
+    if (!session.warmLeadSent) {
+      await sendWarmLead({
+        projectKey,
+        from,
+        session,
+        incomingText: text,
+      });
+
+      updateSession(projectKey, from, { warmLeadSent: true });
+    }
+
+    /* 2. Роутинг */
+    const freshSession = getSession(projectKey, from);
+
     const routed = await routeMessage({
       text,
-      session,
+      session: freshSession,
       projectType: projectKey,
     });
 
     const result = routed?.result || {};
 
     const updated = updateSession(projectKey, from, {
-      step: result.nextStep || session.step,
-      mode: result.mode || session.mode,
-      language: result.language || session.language,
-      data: result.data || session.data,
+      step: result.nextStep || freshSession.step,
+      mode: result.mode || freshSession.mode,
+      language: result.language || freshSession.language,
+      data: result.data || freshSession.data,
     });
 
-    if (updated.step === "completed" && !updated.leadSent) {
-      console.log("🚀 SEND LEAD");
+    /* 3. После дожима ещё раз отправляем финальную заявку */
+    if (updated.step === "completed" && !updated.finalLeadSent) {
+      console.log("🚀 SEND FINAL LEAD");
 
-      await finalizeLead({
+      await sendFinalLead({
         projectKey,
         from,
         session: updated,
       });
 
-      updateSession(projectKey, from, { leadSent: true });
+      updateSession(projectKey, from, { finalLeadSent: true });
     }
 
     if (!result.reply) {
@@ -330,7 +385,10 @@ async function handleWebhook(req, res) {
       "SEND WHATSAPP MESSAGE"
     );
   } catch (error) {
-    console.log("❌ HANDLE WEBHOOK ERROR:", error.response?.data || error.message);
+    console.log(
+      "❌ HANDLE WEBHOOK ERROR:",
+      error.response?.data || error.message
+    );
   }
 }
 
