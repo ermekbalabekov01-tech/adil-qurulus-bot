@@ -51,19 +51,6 @@ function isGreeting(text) {
   ].some((g) => t.includes(g));
 }
 
-function isClinicAdStarter(text = "") {
-  const t = normalizeText(text);
-
-  return (
-    t.includes("Здравствуйте! Можно узнать об этом подробнее?") ||
-    t.includes("можно узнать об этом подробнее") ||
-    t.includes("можно узнать подробнее") ||
-    t.includes("расскажите подробнее") ||
-    t.includes("хочу узнать подробнее") ||
-    t === "подробнее"
-  );
-}
-
 function isMuslimGreeting(text) {
   const t = cleanGreetingText(text);
 
@@ -143,35 +130,51 @@ function detectIntent(text, projectConfig) {
   return null;
 }
 
-function getSellerGreetingReply(lang = "ru", isIslamic = false) {
+function isClinicAdStarter(text = "") {
+  const t = normalizeText(text);
+
+  return (
+    t.includes("Здравствуйте! Можно узнать об этом подробнее?") ||
+    t.includes("можно узнать подробнее") ||
+    t.includes("расскажите подробнее") ||
+    t.includes("хочу узнать подробнее") ||
+    t === "подробнее"
+  );
+}
+
+function getConstructionOfficialGreeting(lang = "ru", islamic = false) {
   if (lang === "kz") {
-    if (isIslamic) {
+    if (islamic) {
       return (
         "Уағалейкум ассалам 🤝\n\n" +
-        "Adil Qurulus байланыста.\n" +
-        "Үй, коттедж немесе фундамент бойынша не керек екенін қысқаша жазыңыз — бірден нақты бағыт берем."
+        "Adil Qurulus компаниясы байланыста.\n" +
+        "Астана және жақын аймақтар бойынша үй, коттедж және фундамент құрылысына қатысты сұрақтарыңызға бағыт береміз.\n\n" +
+        "Қысқаша жазыңыз: не қызықтырады — бірден нақтылап жауап беремін."
       );
     }
 
     return (
-      "Сәлеметсіз бе! 👋\n\n" +
-      "Adil Qurulus байланыста.\n" +
-      "Үй, коттедж немесе фундамент керек болса, қысқаша жаза аласыз — бірден нақтылап берем."
+      "Сәлеметсіз бе 👋\n\n" +
+      "Adil Qurulus компаниясы байланыста.\n" +
+      "Астана және жақын аймақтар бойынша үй, коттедж және фундамент құрылысы бойынша бағыт береміз.\n\n" +
+      "Қысқаша жазыңыз: не қызықтырады — бірден нақтылап жауап беремін."
     );
   }
 
-  if (isIslamic) {
+  if (islamic) {
     return (
       "Ва алейкум ассалам 🤝\n\n" +
-      "Adil Qurulus на связи.\n" +
-      "Напишите коротко, что вас интересует: дом, коттедж или фундамент — и я сразу сориентирую."
+      "Компания Adil Qurulus на связи.\n" +
+      "Мы консультируем по строительству домов, коттеджей и фундаментным работам в Астане и ближайших пригородах.\n\n" +
+      "Напишите коротко, что вас интересует, и я сразу сориентирую."
     );
   }
 
   return (
-    "Здравствуйте! 👋\n\n" +
-    "Adil Qurulus на связи.\n" +
-    "Напишите коротко, что вас интересует: дом, коттедж или фундамент — и я сразу сориентирую."
+    "Здравствуйте 👋\n\n" +
+    "Компания Adil Qurulus на связи.\n" +
+    "Консультируем по строительству домов, коттеджей и фундаментным работам в Астане и ближайших пригородах.\n\n" +
+    "Напишите коротко, что вас интересует, и я сразу сориентирую."
   );
 }
 
@@ -509,7 +512,6 @@ function parseRangeLikeTime(text) {
 
 function parseLooseHour(text) {
   const t = normalizeText(text);
-
   const direct = t.match(/\b([0-2]?\d)\b/);
   if (!direct) return { ok: false };
 
@@ -736,6 +738,22 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   const t = normalizeText(text);
   const mapUrl = process.env.CLINIC_2GIS_URL || "https://2gis.kz/";
   const instagramUrl = process.env.CLINIC_INSTAGRAM_URL || "https://www.instagram.com/";
+
+  if (isClinicAdStarter(text)) {
+    return {
+      project: "clinic",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Сәлеметсіз бе 🌸\n\nМен Алия, Dr.Aitimbetova клиникасының ассистентімін.\nПроцедура бойынша қысқаша бағыт беріп, консультацияға жазылуға көмектесемін.\n\nҚай қаладансыз?"
+            : "Здравствуйте 🌸\n\nЯ Алия, ассистент клиники Dr.Aitimbetova.\nПодскажу по процедурам и помогу записаться на консультацию.\n\nСкажите, пожалуйста, из какого вы города?",
+        nextStep: "ask_city",
+        mode: "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
 
   if (
     t.includes("где вы") ||
@@ -1255,27 +1273,30 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
 async function routeConstructionMessage({ text, session, projectConfig, lang }) {
   const t = normalizeText(text);
   const currentData = session?.data || {};
-if (
-    t.includes("какой район") ||
-    t.includes("в каком районе") ||
-    t.includes("где вы работаете") ||
-    t.includes("какие районы") ||
-    t.includes("по какому району") ||
-    t.includes("район") ||
-    t.includes("астана") ||
-    t.includes("косшы") ||
-    t.includes("пригород")
-  ) {
+
+  if (!session?.language) {
+    const detected = detectLanguage(text, projectConfig);
+
+    if (!detected) {
+      return {
+        project: "construction",
+        result: {
+          reply: projectConfig.welcome.mixed,
+          nextStep: "language_select",
+          mode: "scenario",
+          language: null,
+          data: currentData,
+        },
+      };
+    }
+
     return {
       project: "construction",
       result: {
-        reply:
-          lang === "kz"
-            ? "Біз Астана және жақын маңдағы аудандармен жұмыс істейміз 👍\n\nЕгер нақты локацияны жазсаңыз, сол жер бойынша бірден нақтылап айтамын."
-            : "Мы работаем по Астане и ближайшим пригородам 👍\n\nЕсли напишете точную локацию или район, я сразу сориентирую, работаем ли там.",
-        nextStep: session?.step || "qualification",
-        mode: session?.mode || "scenario",
-        language: lang,
+        reply: projectConfig.welcome[detected],
+        nextStep: "qualification",
+        mode: "scenario",
+        language: detected,
         data: currentData,
       },
     };
@@ -1307,12 +1328,38 @@ if (
     };
   }
 
+  if (
+    t.includes("какой район") ||
+    t.includes("в каком районе") ||
+    t.includes("где вы работаете") ||
+    t.includes("какие районы") ||
+    t.includes("по какому району") ||
+    t.includes("район") ||
+    t.includes("астана") ||
+    t.includes("косшы") ||
+    t.includes("пригород")
+  ) {
+    return {
+      project: "construction",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Біз Астана және жақын маңдағы аудандармен жұмыс істейміз 👍\n\nЕгер нақты локацияны жазсаңыз, сол жер бойынша бірден нақтылап айтамын."
+            : "Мы работаем по Астане и ближайшим пригородам 👍\n\nЕсли напишете точную локацию или район, я сразу сориентирую, работаем ли там.",
+        nextStep: session?.step || "qualification",
+        mode: session?.mode || "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
+
   if (isMuslimGreeting(text) && !containsUsefulConstructionData(text)) {
     return {
       project: "construction",
       result: {
-        reply: getSellerGreetingReply(lang, true),
-        nextStep: session?.step === "start" ? "qualification" : session?.step || "qualification",
+        reply: getConstructionOfficialGreeting(lang, true),
+        nextStep: session?.step || "qualification",
         mode: session?.mode || "scenario",
         language: lang,
         data: currentData,
@@ -1324,38 +1371,10 @@ if (
     return {
       project: "construction",
       result: {
-        reply: getSellerGreetingReply(lang, false),
-        nextStep: session?.step === "start" ? "qualification" : session?.step || "qualification",
+        reply: getConstructionOfficialGreeting(lang, false),
+        nextStep: session?.step || "qualification",
         mode: session?.mode || "scenario",
         language: lang,
-        data: currentData,
-      },
-    };
-  }
-
-  if (!session?.language) {
-    const detected = detectLanguage(text, projectConfig);
-
-    if (!detected) {
-      return {
-        project: "construction",
-        result: {
-          reply: projectConfig.welcome.mixed,
-          nextStep: "language_select",
-          mode: "scenario",
-          language: null,
-          data: currentData,
-        },
-      };
-    }
-
-    return {
-      project: "construction",
-      result: {
-        reply: projectConfig.welcome[detected],
-        nextStep: "qualification",
-        mode: "scenario",
-        language: detected,
         data: currentData,
       },
     };
