@@ -2,7 +2,7 @@ const projects = require("./config/projects.config");
 const { getAIReply } = require("./services/ai.service");
 
 /* =========================
-   BASIC HELPERS
+   BASE HELPERS
 ========================= */
 
 function normalizeText(text = "") {
@@ -21,6 +21,22 @@ function cleanGreetingText(text = "") {
     .trim();
 }
 
+function looksLikePhone(text = "") {
+  const n = String(text).replace(/\D/g, "");
+  return n.length >= 10 && n.length <= 15;
+}
+
+function extractName(text = "") {
+  const cleaned = String(text)
+    .replace(/[^\p{L}\s-]/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!cleaned) return "";
+  const parts = cleaned.split(" ");
+  return parts.slice(0, 2).join(" ");
+}
+
 function detectLanguage(text, projectConfig) {
   const t = normalizeText(text);
 
@@ -36,7 +52,19 @@ function detectLanguage(text, projectConfig) {
   return null;
 }
 
-function isGreeting(text) {
+function detectIntent(text, projectConfig) {
+  const t = normalizeText(text);
+
+  for (const [intent, phrases] of Object.entries(projectConfig.intentMap || {})) {
+    if (phrases.some((phrase) => t.includes(normalizeText(phrase)))) {
+      return intent;
+    }
+  }
+
+  return null;
+}
+
+function isGreeting(text = "") {
   const t = cleanGreetingText(text);
 
   return [
@@ -55,7 +83,7 @@ function isGreeting(text) {
   ].some((g) => t.includes(g));
 }
 
-function isMuslimGreeting(text) {
+function isMuslimGreeting(text = "") {
   const t = cleanGreetingText(text);
 
   return (
@@ -75,7 +103,7 @@ function isMuslimGreeting(text) {
   );
 }
 
-function isAngry(text) {
+function isAngry(text = "") {
   const t = normalizeText(text);
 
   return (
@@ -94,42 +122,6 @@ function isAngry(text) {
     t.includes("что за фигня")
   );
 }
-
-function looksLikePhone(text) {
-  const n = String(text || "").replace(/\D/g, "");
-  return n.length >= 10 && n.length <= 15;
-}
-
-function extractName(text) {
-  const cleaned = String(text || "")
-    .replace(/[^\p{L}\s-]/gu, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-
-  if (!cleaned) return "";
-  const parts = cleaned.split(" ");
-  return parts.slice(0, 2).join(" ");
-}
-
-function detectIntent(text, projectConfig) {
-  const t = normalizeText(text);
-
-  for (const [intent, phrases] of Object.entries(projectConfig.intentMap || {})) {
-    if (phrases.some((phrase) => t.includes(normalizeText(phrase)))) {
-      return intent;
-    }
-  }
-
-  return null;
-}
-
-function hasQuestionMark(text = "") {
-  return String(text).includes("?");
-}
-
-/* =========================
-   SHARED QUICK REPLIES
-========================= */
 
 function buildSupportReply(lang, projectConfig, text) {
   const t = normalizeText(text);
@@ -219,7 +211,7 @@ function getDeEscalationReply(lang = "ru") {
   );
 }
 
-function containsUsefulConstructionData(text) {
+function containsUsefulConstructionData(text = "") {
   const t = normalizeText(text);
 
   return (
@@ -251,45 +243,25 @@ function parseConstructionInfo(text = "", currentData = {}) {
   const data = { ...currentData };
 
   if (!data.intent) {
-    if (
-      t.includes("дом") ||
-      t.includes("үй")
-    ) data.intent = "house";
-
-    if (
-      t.includes("коттедж")
-    ) data.intent = "cottage";
-
-    if (
-      t.includes("фундамент") ||
-      t.includes("лента") ||
-      t.includes("сваи") ||
-      t.includes("плита")
-    ) data.intent = "foundation";
-
-    if (
-      t.includes("консультация") ||
-      t.includes("кеңес")
-    ) data.intent = "consultation";
+    if (t.includes("дом") || t.includes("үй")) data.intent = "house";
+    if (t.includes("коттедж")) data.intent = "cottage";
+    if (t.includes("фундамент") || t.includes("лента") || t.includes("сваи") || t.includes("плита")) {
+      data.intent = "foundation";
+    }
+    if (t.includes("консультация") || t.includes("кеңес")) data.intent = "consultation";
   }
 
   const areaMatch =
     t.match(/\b(\d{2,4})\s*(?:кв\.?\s*м|кв м|м2|м²)\b/i) ||
     t.match(/\b(\d{2,4})\s*(?:квадрат|квадратов)\b/i);
 
-  if (areaMatch && !data.size) {
-    data.size = `${areaMatch[1]} м²`;
-  }
+  if (areaMatch && !data.size) data.size = `${areaMatch[1]} м²`;
 
   const areaRangeMatch = t.match(/\b(\d{2,4})\s*[-–—]\s*(\d{2,4})\s*(?:кв\.?\s*м|кв м|м2|м²)?\b/i);
-  if (areaRangeMatch && !data.size) {
-    data.size = `${areaRangeMatch[1]}-${areaRangeMatch[2]} м²`;
-  }
+  if (areaRangeMatch && !data.size) data.size = `${areaRangeMatch[1]}-${areaRangeMatch[2]} м²`;
 
   const sotokMatch = t.match(/\b(\d{1,3})\s*сот(?:ок|ки|ка)?\b/i);
-  if (sotokMatch && !data.plot) {
-    data.plot = `${sotokMatch[1]} соток`;
-  }
+  if (sotokMatch && !data.plot) data.plot = `${sotokMatch[1]} соток`;
 
   const startSignals = [
     "в этом году",
@@ -304,9 +276,7 @@ function parseConstructionInfo(text = "", currentData = {}) {
     "после",
     "через",
   ];
-  if (!data.timing && startSignals.some((x) => t.includes(x))) {
-    data.timing = text;
-  }
+  if (!data.timing && startSignals.some((x) => t.includes(x))) data.timing = text;
 
   const locations = [
     "астана",
@@ -315,17 +285,12 @@ function parseConstructionInfo(text = "", currentData = {}) {
     "талапкер",
     "карагайлы",
     "караоткель",
-    "участок",
     "левый берег",
     "правый берег",
   ];
-  if (!data.location && locations.some((x) => t.includes(x))) {
-    data.location = text;
-  }
+  if (!data.location && locations.some((x) => t.includes(x))) data.location = text;
 
-  if (!data.projectDetails && text.length > 3) {
-    data.projectDetails = text;
-  }
+  if (!data.projectDetails && text.length > 3) data.projectDetails = text;
 
   return data;
 }
@@ -384,12 +349,11 @@ async function tryConstructionAIReply({ text, session, lang }) {
         language: lang,
         aiInstructions:
           "Ты сильный и деловой менеджер крупной строительной компании Adil Qurulus. " +
-          "Главная цель — не болтать, а вести клиента к заявке. " +
-          "Отвечай коротко, по делу, уверенно, максимум 2-3 коротких абзаца. " +
-          "Не дублируй приветствия. " +
-          "После ответа мягко, но уверенно переводи клиента к следующему шагу: локация, площадь, имя, телефон. " +
-          "Если клиент уже тёплый, не растягивай диалог — подводи к контакту. " +
-          "Не пиши как бот и не уходи в длинные объяснения.",
+          "Главная цель — быстро вести клиента к заявке. " +
+          "Отвечай коротко, уверенно, по делу, максимум 2-3 коротких абзаца. " +
+          "Не растягивай диалог. " +
+          "После ответа подталкивай к следующему шагу: локация, размер, имя, телефон. " +
+          "Если клиент уже тёплый, веди к контакту без лишней болтовни.",
       },
     });
 
@@ -412,7 +376,11 @@ function isClinicAdStarter(text = "") {
     t.includes("можно узнать подробнее") ||
     t.includes("расскажите подробнее") ||
     t.includes("хочу узнать подробнее") ||
-    t === "подробнее"
+    t === "подробнее" ||
+    t.includes("интересно") ||
+    t.includes("можно узнать") ||
+    t.includes("цена") ||
+    t.includes("здравствуйте")
   );
 }
 
@@ -695,6 +663,9 @@ function clinicShouldUseAI(text, session) {
     "қалай өтеді",
     "үйрету",
     "оқу",
+    "подумаю",
+    "из другого города",
+    "другой город",
   ];
 
   return aiSignals.some((word) => t.includes(word));
@@ -735,11 +706,12 @@ async function tryClinicAIReply({ text, session, lang }) {
         language: lang,
         aiInstructions:
           "Ты Алия, сильный и живой ассистент премиальной клиники Dr.Aitimbetova. " +
-          "Главная цель — быстро привести клиента к записи или заявке на обучение. " +
-          "Отвечай коротко, уверенно, тепло, без воды, максимум 2-3 коротких абзаца. " +
-          "Не ставь диагноз. Не обещай медицинский результат. " +
-          "Если вопрос по обучению — дай короткий ответ и переведи к имени/телефону. " +
-          "Если вопрос по процедуре — коротко ответь по сути и мягко верни к следующему шагу записи. " +
+          "Главная цель — быстро привести клиента к записи или к заявке на обучение. " +
+          "Отвечай коротко, уверенно, по делу, максимум 2-3 коротких абзаца. " +
+          "Закрывай на запись. " +
+          "Если клиент спрашивает цену — мягко веди к консультации. " +
+          "Если клиент говорит, что подумает, предложи забронировать время без давления. " +
+          "Если клиент из другого города, веди к удобной дате приезда. " +
           "Не пиши как автоответчик.",
       },
     });
@@ -801,7 +773,7 @@ function parseClinicInfo(text = "", currentData = {}, lang = "ru") {
     data.preferredTime = smart.time.value;
   }
 
-  if (!data.name && /\p{L}{2,}/u.test(text) && !hasQuestionMark(text) && text.length <= 40 && !looksLikePhone(text)) {
+  if (!data.name && /\p{L}{2,}/u.test(text) && !looksLikePhone(text) && text.length <= 40) {
     const maybeName = extractName(text);
     if (maybeName && maybeName.length >= 2 && !isGreeting(text)) {
       data.name = maybeName;
@@ -809,16 +781,6 @@ function parseClinicInfo(text = "", currentData = {}, lang = "ru") {
   }
 
   return data;
-}
-
-function countClinicSignals(data = {}) {
-  let score = 0;
-  if (data.city) score += 1;
-  if (data.service) score += 1;
-  if (data.visitDay) score += 1;
-  if (data.visitTime) score += 1;
-  if (data.name) score += 1;
-  return score;
 }
 
 /* =========================
@@ -832,15 +794,18 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   const mapUrl = process.env.CLINIC_2GIS_URL || "https://2gis.kz/";
   const instagramUrl = process.env.CLINIC_INSTAGRAM_URL || "https://www.instagram.com/";
 
-  if (isClinicAdStarter(text) && !session?.language) {
+  if (
+    isClinicAdStarter(text) &&
+    (!session?.step || session?.step === "start" || !session?.language)
+  ) {
     return {
       project: "clinic",
       result: {
         reply:
           "Здравствуйте 🌸\n\n" +
-          "Я Алия, ассистент клиники Dr.Aitimbetova.\n" +
-          "Коротко подскажу по процедуре и помогу записаться на консультацию.\n\n" +
-          "Подскажите, пожалуйста, из какого вы города?",
+          "Меня зовут Алия, я ассистент клиники Dr.Aitimbetova.\n" +
+          "Подскажу по процедурам и аккуратно помогу записаться на консультацию.\n\n" +
+          "Скажите, пожалуйста, из какого вы города?",
         nextStep: "ask_city",
         mode: "scenario",
         language: "ru",
@@ -865,7 +830,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         reply:
           lang === "kz"
             ? `Біз Астанада орналасқанбыз 🌿\n\nМіне нақты локация:\n${mapUrl}\n\nҚаласаңыз, ыңғайлы күн мен уақытты бірден қарайық.`
-            : `Мы находимся в Астане 🌿\n\nВот наша точная локация:\n${mapUrl}\n\nЕсли хотите, можем сразу подобрать удобный день и время.`,
+            : `Мы находимся в Астане 🌿\n\nВот наша точная локация:\n${mapUrl}\n\nЕсли хотите, я сразу помогу подобрать удобный день и время.`,
         nextStep: session?.step || "ask_city",
         mode: session?.mode || "scenario",
         language: lang,
@@ -937,6 +902,55 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     };
   }
 
+  // PRO MAX продажные возражения
+  if (t.includes("сколько") || t.includes("цена") || t.includes("стоимость")) {
+    return {
+      project: "clinic",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Нақты баға зона мен көлемге байланысты 🌿\n\nДәрігер консультацияда нақтырақ айтады.\n\nҚаласаңыз, қазір ыңғайлы күн мен уақытты бірден таңдап қояйық."
+            : "Точная стоимость зависит от зоны и объёма работы 🌿\n\nВрач сможет сориентировать точнее на консультации.\n\nЕсли хотите, давайте сразу подберём удобный день и время.",
+        nextStep: currentData.visitDay ? "ask_time" : "ask_day",
+        mode: "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
+
+  if (t.includes("подумаю")) {
+    return {
+      project: "clinic",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Түсінемін 🌿\n\nҚазір тек ыңғайлы уақытты алдын ала қойып қоя аламыз, еш міндеттемесіз.\n\nҚай күн ыңғайлы?"
+            : "Понимаю 🌿\n\nМожем пока просто предварительно поставить удобное время, без обязательств.\n\nКакой день вам удобен?",
+        nextStep: "ask_day",
+        mode: "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
+
+  if (t.includes("другой город") || t.includes("из другого города") || t.includes("с другого города")) {
+    return {
+      project: "clinic",
+      result: {
+        reply:
+          lang === "kz"
+            ? "Түсіндім 🌿\n\nБізге басқа қалалардан да жиі келеді.\n\nСіз Астанаға шамамен қай күні келе аласыз?"
+            : "Поняла 🌿\n\nК нам часто приезжают из других городов.\n\nПодскажите, примерно в какой день вы сможете быть в Астане?",
+        nextStep: "ask_day",
+        mode: "scenario",
+        language: lang,
+        data: currentData,
+      },
+    };
+  }
+
   if (clinicShouldUseAI(text, session)) {
     const aiReply = await tryClinicAIReply({ text, session, lang });
     if (aiReply) {
@@ -986,7 +1000,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         reply:
           lang === "kz"
             ? "Қай қаладансыз?"
-            : "Подскажите, пожалуйста, из какого вы города?",
+            : "Скажите, пожалуйста, из какого вы города?",
         nextStep: "ask_city",
         mode: "scenario",
         language: lang,
@@ -1006,8 +1020,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         result: {
           reply:
             lang === "kz"
-              ? "Түсіндім 🌿\n\nОқу бойынша сұранысыңызды қабылдадым.\nӨзіңізді қалай атаймыз?"
-              : "Поняла 🌿\n\nПриняла ваш запрос по обучению.\nПодскажите, пожалуйста, как я могу к вам обращаться?",
+              ? "Түсіндім 🌿\n\nОқу бойынша толық ақпаратты администратор береді.\nӨзіңізді қалай атаймыз?"
+              : "Поняла 🌿\n\nПо обучению администратор подробно всё подскажет.\nПодскажите, пожалуйста, как я могу к вам обращаться?",
           nextStep: "training_name",
           mode: "scenario",
           language: lang,
@@ -1023,8 +1037,11 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       return {
         project: "clinic",
         result: {
-          reply: prompts.askSize,
-          nextStep: "ask_photo",
+          reply:
+            lang === "kz"
+              ? `Жақсы 🌸\n\n${data.service} бойынша консультацияда дәрігер нақтырақ бағыт береді.\n\nКонсультация шамамен 20 минут алады.\n\nҚай күн ыңғайлы?`
+              : `Отлично 🌸\n\nПо направлению "${data.service}" врач сможет точно сориентировать вас на консультации.\n\nКонсультация занимает около 20 минут.\n\nНа какой день вам удобно подойти?`,
+          nextStep: "ask_day",
           mode: "scenario",
           language: lang,
           data,
@@ -1101,38 +1118,6 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     };
   }
 
-  if (session?.step === "ask_photo") {
-    const data = {
-      ...currentData,
-      photoStatus: text,
-      size: text,
-    };
-
-    if (data.visitDay && data.visitTime) {
-      return {
-        project: "clinic",
-        result: {
-          reply: prompts.askProject,
-          nextStep: "ask_name_age",
-          mode: "scenario",
-          language: lang,
-          data,
-        },
-      };
-    }
-
-    return {
-      project: "clinic",
-      result: {
-        reply: prompts.askTiming,
-        nextStep: "ask_day",
-        mode: "scenario",
-        language: lang,
-        data,
-      },
-    };
-  }
-
   if (session?.step === "ask_day") {
     const smart = parseSmartDateTime(text, lang);
     const data = { ...currentData };
@@ -1165,7 +1150,10 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       return {
         project: "clinic",
         result: {
-          reply: prompts.askProject,
+          reply:
+            lang === "kz"
+              ? "Жақсы 🌿\n\nӨте жақсы, уақытты қойып қойдым.\nЕнді өз атыңыз бен жасыңызды жазыңыз."
+              : "Хорошо 🌿\n\nОтлично, время зафиксировала.\nТеперь подскажите, как к вам обращаться и ваш возраст.",
           nextStep: "ask_name_age",
           mode: "scenario",
           language: lang,
@@ -1181,7 +1169,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
           reply:
             lang === "kz"
               ? "Күні ыңғайлы форматта жазыңызшы 🌿\nМысалы: ертең, дүйсенбі, 19 сәуір"
-              : "Напишите, пожалуйста, дату в удобном формате 🌿\nНапример: завтра, понедельник, 19 апреля",
+              : "Напишите, пожалуйста, день в удобном формате 🌿\nНапример: завтра, понедельник, 19 апреля",
           nextStep: "ask_day",
           mode: "scenario",
           language: lang,
@@ -1193,7 +1181,10 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     return {
       project: "clinic",
       result: {
-        reply: prompts.askName,
+        reply:
+          lang === "kz"
+            ? `Жақсы 🌸\n\n${data.visitDay} күніне мына уақыттар ыңғайлы болуы мүмкін:\n• 12:00\n• 15:00\n• 19:00\n\nҚайсысы ыңғайлы?`
+            : `Хорошо 🌸\n\nНа ${data.visitDay} можно рассмотреть такие окна:\n• 12:00\n• 15:00\n• 19:00\n\nКакое время вам удобнее?`,
         nextStep: "ask_time",
         mode: "scenario",
         language: lang,
@@ -1247,7 +1238,10 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     return {
       project: "clinic",
       result: {
-        reply: prompts.askProject,
+        reply:
+          lang === "kz"
+            ? "Өте жақсы 🌿\n\nУақытты қойып қойдым.\nЕнді өз атыңыз бен жасыңызды жазыңыз."
+            : "Отлично 🌿\n\nВремя зафиксировала.\nТеперь подскажите, как к вам обращаться и ваш возраст.",
         nextStep: "ask_name_age",
         mode: "scenario",
         language: lang,
@@ -1267,8 +1261,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       result: {
         reply:
           lang === "kz"
-            ? "Рақмет 🌸\n\nЕнді байланыс үшін телефон нөміріңізді жазыңызшы."
-            : "Спасибо 🌸\n\nТеперь напишите, пожалуйста, ваш номер телефона для подтверждения записи.",
+            ? "Жақсы 🌸\n\nСоңғы қадам қалды — телефон нөміріңізді жазыңызшы."
+            : "Хорошо 🌸\n\nОстался последний шаг — напишите, пожалуйста, номер телефона.",
         nextStep: "ask_phone",
         mode: "scenario",
         language: lang,
@@ -1325,7 +1319,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   return {
     project: "clinic",
     result: {
-      reply: projectConfig.welcome[lang],
+      reply: projectConfig.welcome[lang] || projectConfig.welcome.ru,
       nextStep: "ask_city",
       mode: "scenario",
       language: lang,
@@ -1414,7 +1408,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       result: {
         reply:
           lang === "kz"
-            ? "Біз Астана және жақын маңдағы аудандармен жұмыс істейміз 👍\n\nНақты локацияны жазсаңыз, сол жер бойынша бірден нақтылап айтамын."
+            ? "Біз Астана және жақын маңдағы аудандармен жұмыс істейміз 👍\n\nНақты локацияны жазыңыз, сол жер бойынша бірден айтамын."
             : "Мы работаем по Астане и ближайшим пригородам 👍\n\nНапишите точную локацию участка, и я сразу скажу по вашему объекту.",
         nextStep: session?.step || "qualification",
         mode: session?.mode || "scenario",
@@ -1517,22 +1511,6 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       };
     }
 
-    if (currentData.intent && (currentData.location || currentData.size || currentData.plot)) {
-      return {
-        project: "construction",
-        result: {
-          reply:
-            lang === "kz"
-              ? "Түсіндім 👍\n\nЕнді тағы 1-2 нақтылау:\n• учаске қай жерде\n• шамамен көлемі қандай"
-              : "Понял 👍\n\nЧтобы сразу сориентировать точнее, уточню ещё 1-2 момента:\n• где находится участок\n• какой примерно объём объекта",
-          nextStep: "collect_details",
-          mode: "scenario",
-          language: lang,
-          data: currentData,
-        },
-      };
-    }
-
     return {
       project: "construction",
       result: {
@@ -1572,8 +1550,8 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       result: {
         reply:
           lang === "kz"
-            ? "Түсіндім.\n\nУчаске қай жерде және шамамен қандай көлем керек?"
-            : "Понял.\n\nПодскажите, где участок и какой примерно нужен объём?",
+            ? "Түсіндім.\n\nЕнді 1-2 нақтылау керек:\n• учаске қай жерде\n• шамамен қандай көлем"
+            : "Понял.\n\nТеперь нужно уточнить 1-2 момента:\n• где находится участок\n• какой примерно нужен объём",
         nextStep: "collect_details",
         mode: "scenario",
         language: lang,
