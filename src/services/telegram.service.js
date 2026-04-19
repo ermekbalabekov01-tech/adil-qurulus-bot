@@ -10,17 +10,17 @@ function buildWhatsAppLink(phone = "") {
   return `https://wa.me/${clean}`;
 }
 
+function buildCallLink(phone = "") {
+  const clean = normalizePhone(phone);
+  if (!clean) return "";
+  return `tel:+${clean}`;
+}
+
 function escapeHtml(value = "") {
   return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function buildConstructionHeader(lead = {}) {
-  return lead.telegramType === "final"
-    ? "✅ <b>ФИНАЛЬНАЯ ЗАЯВКА — СТРОЙКА</b>"
-    : "🔥 <b>НОВЫЙ ВХОД — СТРОЙКА</b>";
 }
 
 function buildDirectionLabel(direction = "") {
@@ -36,31 +36,50 @@ function buildDirectionLabel(direction = "") {
 
 function buildConstructionTelegramHtml(lead = {}) {
   const isFinal = lead.telegramType === "final";
+  const phone = lead.phone || lead.whatsapp || "Не указано";
+  const waLink = buildWhatsAppLink(phone);
+
+  const title = isFinal
+    ? "🏗️ <b>Новая заявка — Adil Qurulus</b>"
+    : "🔥 <b>Новый вход — Adil Qurulus</b>";
+
+  const phoneLine =
+    phone && phone !== "Не указано"
+      ? `<a href="${waLink}">${escapeHtml(phone)}</a>`
+      : "Не указано";
 
   const lines = [
-    buildConstructionHeader(lead),
+    title,
     "",
-    "🏗️ <b>Проект:</b> Adil Qurulus",
     `👤 <b>Имя:</b> ${escapeHtml(lead.name || "Не указано")}`,
-    `📞 <b>Телефон:</b> ${escapeHtml(lead.phone || lead.whatsapp || "Не указано")}`,
+    `☎️ <b>Телефон:</b> ${phoneLine}`,
     `💬 <b>WhatsApp:</b> ${escapeHtml(lead.whatsapp || "Не указано")}`,
-    `📌 <b>Направление:</b> ${escapeHtml(buildDirectionLabel(lead.direction))}`,
+    `📁 <b>Направление:</b> ${escapeHtml(buildDirectionLabel(lead.direction))}`,
     `📍 <b>Локация:</b> ${escapeHtml(lead.location || "Не указано")}`,
-    `📐 <b>Площадь:</b> ${escapeHtml(lead.size || "Не указано")}`,
-    `🧱 <b>Участок:</b> ${escapeHtml(lead.plot || "Не указано")}`,
-    `⏳ <b>Сроки:</b> ${escapeHtml(lead.timing || "Не указано")}`,
+    `📐 <b>Размер:</b> ${escapeHtml(lead.size || "Не указано")}`,
   ];
 
-  if (!isFinal) {
-    lines.push(`🗨️ <b>Первое сообщение:</b> ${escapeHtml(lead.firstMessage || "Не указано")}`);
+  if (lead.plot && lead.plot !== "Не указано") {
+    lines.push(`🧱 <b>Участок:</b> ${escapeHtml(lead.plot)}`);
   }
 
-  lines.push(`📝 <b>Комментарий:</b> ${escapeHtml(lead.projectDetails || "Не указано")}`);
+  if (lead.timing && lead.timing !== "Не указано") {
+    lines.push(`⏳ <b>Сроки:</b> ${escapeHtml(lead.timing)}`);
+  }
+
+  if (!isFinal && lead.firstMessage) {
+    lines.push(`🗨️ <b>Первое сообщение:</b> ${escapeHtml(lead.firstMessage)}`);
+  }
+
+  if (lead.projectDetails && lead.projectDetails !== "Не указано") {
+    lines.push(`📝 <b>Комментарий:</b> ${escapeHtml(lead.projectDetails)}`);
+  }
+
   lines.push("");
   lines.push(
     isFinal
-      ? "⚡ <b>Приоритет:</b> клиент дошёл до финала, нужен быстрый контакт."
-      : "👀 <b>Приоритет:</b> новый вход, желательно быстро подхватить."
+      ? "✅ <b>Лид зафиксирован ботом</b>"
+      : "👀 <b>Новый вход, желательно быстро подхватить</b>"
   );
 
   return lines.join("\n");
@@ -78,17 +97,25 @@ async function sendTelegramLead(lead = {}) {
 
     const html = buildConstructionTelegramHtml(lead);
     const waLink = buildWhatsAppLink(lead.phone || lead.whatsapp);
+    const callLink = buildCallLink(lead.phone || lead.whatsapp);
 
-    const inline_keyboard = waLink
-      ? [
-          [
-            {
-              text: "Открыть WhatsApp",
-              url: waLink,
-            },
-          ],
-        ]
-      : undefined;
+    const buttons = [];
+
+    if (waLink) {
+      buttons.push({
+        text: "👉 Написать в WhatsApp",
+        url: waLink,
+      });
+    }
+
+    if (callLink) {
+      buttons.push({
+        text: "📞 Позвонить",
+        url: callLink,
+      });
+    }
+
+    const inline_keyboard = buttons.length ? [buttons] : undefined;
 
     await axios.post(
       `https://api.telegram.org/bot${token}/sendMessage`,
@@ -99,9 +126,7 @@ async function sendTelegramLead(lead = {}) {
         disable_web_page_preview: true,
         reply_markup: inline_keyboard ? { inline_keyboard } : undefined,
       },
-      {
-        timeout: 30000,
-      }
+      { timeout: 30000 }
     );
 
     console.log("✅ Construction Telegram lead sent");

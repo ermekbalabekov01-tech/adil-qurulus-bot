@@ -10,17 +10,17 @@ function buildWhatsAppLink(phone = "") {
   return `https://wa.me/${clean}`;
 }
 
+function buildCallLink(phone = "") {
+  const clean = normalizePhone(phone);
+  if (!clean) return "";
+  return `tel:+${clean}`;
+}
+
 function escapeHtml(value = "") {
   return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function buildClinicHeader(lead = {}) {
-  return lead.telegramType === "final"
-    ? "✅ <b>ФИНАЛЬНАЯ ЗАЯВКА — КЛИНИКА</b>"
-    : "🔥 <b>НОВЫЙ ВХОД — КЛИНИКА</b>";
 }
 
 function buildClinicLeadTypeLabel(lead = {}) {
@@ -33,38 +33,58 @@ function buildClinicLeadTypeLabel(lead = {}) {
 
 function buildClinicTelegramHtml(lead = {}) {
   const isFinal = lead.telegramType === "final";
-  const leadTypeLabel = buildClinicLeadTypeLabel(lead);
+  const phone = lead.phone || lead.whatsapp || "Не указано";
+  const waLink = buildWhatsAppLink(phone);
+
+  const title = isFinal
+    ? "🌸 <b>Новая заявка — Dr.Aitimbetova</b>"
+    : "🔥 <b>Новый вход — Dr.Aitimbetova</b>";
+
+  const phoneLine =
+    phone && phone !== "Не указано"
+      ? `<a href="${waLink}">${escapeHtml(phone)}</a>`
+      : "Не указано";
 
   const lines = [
-    buildClinicHeader(lead),
+    title,
     "",
-    "🌸 <b>Клиника:</b> Dr.Aitimbetova",
-    `📂 <b>Тип:</b> ${escapeHtml(leadTypeLabel)}`,
     `👤 <b>Имя:</b> ${escapeHtml(lead.name || "Не указано")}`,
-    `📞 <b>Телефон:</b> ${escapeHtml(lead.phone || lead.whatsapp || "Не указано")}`,
+    `☎️ <b>Телефон:</b> ${phoneLine}`,
     `💬 <b>WhatsApp:</b> ${escapeHtml(lead.whatsapp || "Не указано")}`,
     `🏙️ <b>Город:</b> ${escapeHtml(lead.city || lead.location || "Не указано")}`,
-    `💎 <b>Услуга:</b> ${escapeHtml(lead.service || lead.projectDetails || "Не указано")}`,
+    `💎 <b>Услуга:</b> ${escapeHtml(lead.service || "Не указано")}`,
+    `📂 <b>Тип:</b> ${escapeHtml(buildClinicLeadTypeLabel(lead))}`,
   ];
 
   if (lead.leadType === "training") {
-    lines.push(`🎓 <b>Интерес:</b> ${escapeHtml(lead.projectDetails || "Не указано")}`);
+    if (lead.projectDetails && lead.projectDetails !== "Не указано") {
+      lines.push(`🎓 <b>Интерес:</b> ${escapeHtml(lead.projectDetails)}`);
+    }
   } else {
-    lines.push(`📷 <b>Фото:</b> ${escapeHtml(lead.photoStatus || "Не указано")}`);
-    lines.push(`📅 <b>Дата:</b> ${escapeHtml(lead.visitDay || "Не указано")}`);
-    lines.push(`🕐 <b>Время:</b> ${escapeHtml(lead.visitTime || lead.preferredTime || "Не указано")}`);
+    if (lead.visitDay && lead.visitDay !== "Не указано") {
+      lines.push(`📅 <b>Дата:</b> ${escapeHtml(lead.visitDay)}`);
+    }
+    if (lead.visitTime && lead.visitTime !== "Не указано") {
+      lines.push(`🕐 <b>Время:</b> ${escapeHtml(lead.visitTime)}`);
+    }
+    if (lead.photoStatus && lead.photoStatus !== "Не указано") {
+      lines.push(`📷 <b>Фото:</b> ${escapeHtml(lead.photoStatus)}`);
+    }
   }
 
-  if (!isFinal) {
-    lines.push(`🗨️ <b>Первое сообщение:</b> ${escapeHtml(lead.firstMessage || "Не указано")}`);
+  if (!isFinal && lead.firstMessage) {
+    lines.push(`🗨️ <b>Первое сообщение:</b> ${escapeHtml(lead.firstMessage)}`);
   }
 
-  lines.push(`📝 <b>Комментарий:</b> ${escapeHtml(lead.projectDetails || "Не указано")}`);
+  if (lead.projectDetails && lead.projectDetails !== "Не указано") {
+    lines.push(`📝 <b>Комментарий:</b> ${escapeHtml(lead.projectDetails)}`);
+  }
+
   lines.push("");
   lines.push(
     isFinal
-      ? "⚡ <b>Приоритет:</b> клиент дошёл до финала, нужно быстро подтвердить запись."
-      : "👀 <b>Приоритет:</b> новый вход, желательно быстро подхватить."
+      ? "✅ <b>Лид зафиксирован ботом</b>"
+      : "👀 <b>Новый вход, желательно быстро подхватить</b>"
   );
 
   return lines.join("\n");
@@ -84,17 +104,25 @@ async function sendClinicTelegramLead(lead = {}) {
 
     const html = buildClinicTelegramHtml(lead);
     const waLink = buildWhatsAppLink(lead.phone || lead.whatsapp);
+    const callLink = buildCallLink(lead.phone || lead.whatsapp);
 
-    const inline_keyboard = waLink
-      ? [
-          [
-            {
-              text: "Открыть WhatsApp",
-              url: waLink,
-            },
-          ],
-        ]
-      : undefined;
+    const buttons = [];
+
+    if (waLink) {
+      buttons.push({
+        text: "👉 Написать в WhatsApp",
+        url: waLink,
+      });
+    }
+
+    if (callLink) {
+      buttons.push({
+        text: "📞 Позвонить",
+        url: callLink,
+      });
+    }
+
+    const inline_keyboard = buttons.length ? [buttons] : undefined;
 
     await axios.post(
       `https://api.telegram.org/bot${token}/sendMessage`,
@@ -105,9 +133,7 @@ async function sendClinicTelegramLead(lead = {}) {
         disable_web_page_preview: true,
         reply_markup: inline_keyboard ? { inline_keyboard } : undefined,
       },
-      {
-        timeout: 30000,
-      }
+      { timeout: 30000 }
     );
 
     console.log("✅ Clinic Telegram lead sent");
