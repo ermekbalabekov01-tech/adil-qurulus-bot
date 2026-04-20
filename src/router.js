@@ -128,6 +128,24 @@ function isAngry(text = "") {
   );
 }
 
+function isReject(text = "") {
+  const t = normalizeText(text);
+
+  return (
+    t.includes("это бот") ||
+    t.includes("ты бот") ||
+    t.includes("с кем поговорить") ||
+    t.includes("менеджер") ||
+    t.includes("достали") ||
+    t.includes("хватит") ||
+    t.includes("не надо") ||
+    t.includes("не интересно") ||
+    t.includes("отстань") ||
+    t.includes("перестань") ||
+    t.includes("жесть")
+  );
+}
+
 function extractName(text = "") {
   const cleaned = String(text || "")
     .replace(/[^\p{L}\s-]/gu, " ")
@@ -562,7 +580,7 @@ function getConstructionPromptByMissing(data = {}, lang = "ru") {
 
   if (missing === "name") {
     return lang === "kz"
-      ? "Жақсы 👍\n\nНақты есепті бекіту үшін өз атыңызды жазыңыз."
+      ? "Жақсы 👍\n\nЕсепті нақтылау үшін атыңызды жазыңыз."
       : "Хорошо 👍\n\nЧтобы зафиксировать расчёт, подскажите ваше имя.";
   }
 
@@ -914,6 +932,7 @@ async function tryClinicAIReply({ text, session, lang }) {
           "Отвечай коротко, по сути, максимум 2-3 абзаца. " +
           "Если клиент спрашивает цену — мягко веди к консультации. " +
           "Если клиент сомневается — успокой и предложи удобный день. " +
+          "Если клиент раздражён или спрашивает, с кем можно поговорить, мягко переводи на имя и номер для связи с администратором. " +
           "После ответа всегда возвращай клиента к следующему шагу.",
       },
     });
@@ -1069,7 +1088,20 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     });
   }
 
-  // AUTO FINAL
+  if (isReject(text)) {
+    return buildResult({
+      project: "clinic",
+      reply:
+        lang === "kz"
+          ? "Түсіндім 🌿\n\nОнда қысқаша: атыңыз бен нөміріңізді қалдырыңыз, администратор өзі хабарласып бәрін түсіндіреді."
+          : "Поняла 🌿\n\nТогда проще: оставьте имя и номер, администратор сам свяжется и всё спокойно объяснит.",
+      nextStep: currentData.name ? "ask_phone" : "ask_name_age",
+      mode: "scenario",
+      language: lang,
+      data: currentData,
+    });
+  }
+
   if (!currentData.phone && looksLikePhone(text)) {
     const data = mergeData(currentData, { phone: onlyDigits(text) });
 
@@ -1198,8 +1230,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       project: "clinic",
       reply:
         lang === "kz"
-          ? "Түсінемін 🌿\n\nӘзірге ыңғайлы уақытты алдын ала қойып қоя аламыз, еш міндеттемесіз.\n\nҚай күн ыңғайлы?"
-          : "Понимаю 🌿\n\nМожем пока просто предварительно поставить удобное время, без обязательств.\n\nКакой день вам удобен?",
+          ? "Түсінемін 🌿\n\nМіндеттеме жоқ, әзірге тек ыңғайлы уақытты алдын ала қойып қоя аламыз.\n\nҚай күн ыңғайлы?"
+          : "Понимаю 🌿\n\nБез обязательств: можем пока просто предварительно поставить удобное время.\n\nКакой день вам удобен?",
       nextStep: "ask_day",
       mode: "scenario",
       language: lang,
@@ -1231,8 +1263,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       const next = getClinicNextPrompt(currentData, lang);
       const close =
         lang === "kz"
-          ? "\n\nЖазылу үшін нөмір қалдыра аласыз, администратор нақты уақытты бекітеді."
-          : "\n\nЧтобы записаться, можете оставить номер — администратор закрепит точное время.";
+          ? "\n\nЕгер ыңғайлы болса, атыңыз бен нөміріңізді жазыңыз — администратор бәрін нақтылап береді."
+          : "\n\nЕсли удобно, оставьте имя и номер — администратор всё уточнит и закрепит запись.";
 
       return buildResult({
         project: "clinic",
@@ -1569,7 +1601,6 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
   const t = normalizeText(text);
   const currentData = parseConstructionInfo(text, session?.data || {});
   const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
-  const signalCount = countConstructionSignals(currentData);
 
   const switchedLang = detectLanguageByText(text);
   if (switchedLang && switchedLang !== (session?.language || lang)) {
@@ -1583,7 +1614,6 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     });
   }
 
-  // Обход приветствия/кнопок таргета
   if ((!session?.language || session?.step === "start") && isConstructionAdEntry(text)) {
     const detected = detectLanguage(text, projectConfig) || lang || "ru";
     const data = mergeData(currentData, {
@@ -1618,7 +1648,6 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       });
     }
 
-    // Если текст уже осмысленный, не шлём повторно приветствие
     if (containsUsefulConstructionData(text) || isGreeting(text) || isMuslimGreeting(text)) {
       const data = currentData;
       const prompt = getConstructionPromptByMissing(data, detected);
@@ -1626,7 +1655,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       return buildResult({
         project: "construction",
         reply: prompt || getConstructionOfficialGreeting(detected),
-        nextStep: prompt ? "qualification" : "qualification",
+        nextStep: "qualification",
         mode: "scenario",
         language: detected,
         data,
@@ -1654,7 +1683,20 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     });
   }
 
-  // AUTO FINAL
+  if (isReject(text)) {
+    return buildResult({
+      project: "construction",
+      reply:
+        lang === "kz"
+          ? "Түсіндім 👍\n\nОнда артық сұрақ қоймаймын.\nАтыңыз бен нөміріңізді қалдырыңыз — менеджер қысқаша хабарласып, нақты айтып береді."
+          : "Понял 👍\n\nТогда не буду перегружать вопросами.\nОставьте имя и номер — менеджер кратко свяжется и всё объяснит по делу.",
+      nextStep: currentData.name ? "ask_phone" : "ask_name",
+      mode: "scenario",
+      language: lang,
+      data: currentData,
+    });
+  }
+
   if (!currentData.phone && looksLikePhone(text)) {
     const data = mergeData(currentData, {
       phone: onlyDigits(text),
@@ -1673,14 +1715,14 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     });
   }
 
-  if (signalCount >= 3 && !currentData.name && session?.step !== "ask_name" && session?.step !== "ask_phone") {
+  if (countConstructionSignals(currentData) >= 3 && !currentData.phone) {
     return buildResult({
       project: "construction",
       reply:
         lang === "kz"
-          ? "Жақсы 👍\n\nЕсепті нақтылау үшін өз атыңызды жазыңыз."
-          : "Хорошо 👍\n\nЧтобы зафиксировать расчёт, подскажите ваше имя.",
-      nextStep: "ask_name",
+          ? "Жақсы 👍\n\nСіз бойынша есеп дайын.\nНақты смета мен ұсыныс үшін менеджер бекітуі керек.\n\nАтыңыз бен нөміріңізді жазыңыз 📞"
+          : "Отлично 👍\n\nПо вашему объекту уже можно считать.\nЧтобы дать точную смету без ошибок, менеджер должен закрепить расчёт.\n\nНапишите имя и номер телефона 📞",
+      nextStep: currentData.name ? "ask_phone" : "ask_name",
       mode: "scenario",
       language: lang,
       data: currentData,
@@ -1736,7 +1778,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
           ? `Міне біздің локация:\n${mapUrl}\n\nЕнді жобаңыз бойынша қысқаша жазыңыз: учаске қай жерде және шамамен қандай көлем?`
           : `Вот наша локация:\n${mapUrl}\n\nТеперь по вашему объекту кратко напишите: где участок и какой примерно объём?`,
       nextStep: session?.step || "qualification",
-      mode: session?.mode || "scenario",
+      mode: "scenario",
       language: lang,
       data: currentData,
     });
@@ -1793,8 +1835,8 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       const next = getConstructionNextPrompt(currentData, lang);
       const close =
         lang === "kz"
-          ? "\n\nЕгер ыңғайлы болса, нөмір қалдырыңыз — менеджер нақты есептеп береді."
-          : "\n\nЕсли удобно, оставьте номер — менеджер рассчитает точно под ваш участок.";
+          ? "\n\nЕгер ыңғайлы болса, атыңыз бен нөміріңізді қалдырыңыз — менеджер нақты есептеп береді."
+          : "\n\nЕсли удобно, оставьте имя и номер — менеджер рассчитает точно под ваш участок.";
 
       return buildResult({
         project: "construction",
@@ -1818,11 +1860,19 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       project: "construction",
       reply: prompt,
       nextStep:
-        prompt === getConstructionPromptByMissing(currentData, lang) && !currentData.intent
+        !currentData.intent
           ? "ask_project"
-          : session?.step === "start"
-          ? "qualification"
-          : session?.step || "qualification",
+          : !currentData.location
+          ? "ask_location"
+          : !currentData.size && !currentData.plot
+          ? "ask_size"
+          : !currentData.timing
+          ? "ask_timing"
+          : !currentData.name
+          ? "ask_name"
+          : !currentData.phone
+          ? "ask_phone"
+          : "completed",
       mode: "scenario",
       language: lang,
       data: currentData,
@@ -1917,7 +1967,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       project: "construction",
       reply:
         lang === "kz"
-          ? "Жақсы 👍\n\nЕнді өз атыңызды жазыңыз."
+          ? "Жақсы 👍\n\nЕнді атыңызды жазыңыз."
           : "Хорошо 👍\n\nТеперь подскажите, как к вам можно обращаться.",
       nextStep: "ask_name",
       mode: "scenario",
