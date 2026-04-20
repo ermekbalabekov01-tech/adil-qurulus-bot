@@ -10,12 +10,6 @@ function buildWhatsAppLink(phone = "") {
   return `https://wa.me/${clean}`;
 }
 
-function buildCallLink(phone = "") {
-  const clean = normalizePhone(phone);
-  if (!clean) return "";
-  return `tel:+${clean}`;
-}
-
 function escapeHtml(value = "") {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -45,7 +39,7 @@ function buildConstructionTelegramHtml(lead = {}) {
 
   const phoneLine =
     phone && phone !== "Не указано"
-      ? `<a href="${waLink}">${escapeHtml(phone)}</a>`
+      ? `<a href="${waLink}">📲 ${escapeHtml(phone)}</a>`
       : "Не указано";
 
   const lines = [
@@ -97,25 +91,17 @@ async function sendTelegramLead(lead = {}) {
 
     const html = buildConstructionTelegramHtml(lead);
     const waLink = buildWhatsAppLink(lead.phone || lead.whatsapp);
-    const callLink = buildCallLink(lead.phone || lead.whatsapp);
 
-    const buttons = [];
-
-    if (waLink) {
-      buttons.push({
-        text: "👉 Написать в WhatsApp",
-        url: waLink,
-      });
-    }
-
-    if (callLink) {
-      buttons.push({
-        text: "📞 Позвонить",
-        url: callLink,
-      });
-    }
-
-    const inline_keyboard = buttons.length ? [buttons] : undefined;
+    const inline_keyboard = waLink
+      ? [
+          [
+            {
+              text: "👉 Написать в WhatsApp",
+              url: waLink,
+            },
+          ],
+        ]
+      : undefined;
 
     await axios.post(
       `https://api.telegram.org/bot${token}/sendMessage`,

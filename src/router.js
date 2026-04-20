@@ -207,6 +207,32 @@ function mergeData(current = {}, extra = {}) {
 }
 
 /* =========================
+   SHARED FUNNELS
+========================= */
+
+function getMissingConstructionField(data = {}) {
+  if (!data.intent) return "intent";
+  if (!data.location) return "location";
+  if (!data.size && !data.plot) return "size";
+  if (!data.timing) return "timing";
+  if (!data.name) return "name";
+  if (!data.phone) return "phone";
+  return null;
+}
+
+function getMissingClinicField(data = {}) {
+  if (!data.city) return "city";
+  if (!data.service && data.intent !== "training") return "service";
+  if (data.intent === "training" && !data.name) return "name";
+  if (data.intent === "training" && !data.phone) return "phone";
+  if (!data.visitDay) return "visitDay";
+  if (!data.visitTime) return "visitTime";
+  if (!data.name) return "name";
+  if (!data.phone) return "phone";
+  return null;
+}
+
+/* =========================
    CONSTRUCTION HELPERS
 ========================= */
 
@@ -256,6 +282,25 @@ function getDeEscalationReply(lang = "ru") {
   );
 }
 
+function isConstructionAdEntry(text = "") {
+  const t = normalizeText(text);
+
+  return (
+    t === "дом" ||
+    t === "коттедж" ||
+    t === "консультация" ||
+    t === "расчет фундамента" ||
+    t === "расчёт фундамента" ||
+    t === "фундамент" ||
+    t === "строительство дома" ||
+    t === "строительство коттеджа" ||
+    t === "үй салу" ||
+    t === "коттедж салу" ||
+    t === "фундамент есебі" ||
+    t === "кеңес алу"
+  );
+}
+
 function containsUsefulConstructionData(text = "") {
   const t = normalizeText(text);
 
@@ -287,7 +332,12 @@ function parseConstructionInfo(text = "", currentData = {}) {
   const data = { ...currentData };
 
   if (!data.intent) {
-    if (t.includes("дом") || t.includes("үй") || t.includes("под ключ")) {
+    if (
+      t.includes("дом") ||
+      t.includes("үй") ||
+      t.includes("под ключ") ||
+      t.includes("проект")
+    ) {
       data.intent = "house";
     }
     if (t.includes("коттедж")) data.intent = "cottage";
@@ -319,6 +369,11 @@ function parseConstructionInfo(text = "", currentData = {}) {
     data.size = `${rangeMatch[1]}-${rangeMatch[2]} м²`;
   }
 
+  const plainMeasure = t.match(/\b(\d{1,3})\s*[xх*]\s*(\d{1,3})\b/i);
+  if (plainMeasure && !data.size) {
+    data.size = `${plainMeasure[1]}x${plainMeasure[2]}`;
+  }
+
   const sotokMatch = t.match(/\b(\d{1,3})\s*сот(?:ок|ки|ка)?\b/i);
   if (sotokMatch && !data.plot) {
     data.plot = `${sotokMatch[1]} соток`;
@@ -338,6 +393,10 @@ function parseConstructionInfo(text = "", currentData = {}) {
     "через",
     "биыл",
     "жақында",
+    "июнь",
+    "июль",
+    "август",
+    "май",
   ];
   if (!data.timing && startSignals.some((x) => t.includes(x))) {
     data.timing = text;
@@ -354,6 +413,8 @@ function parseConstructionInfo(text = "", currentData = {}) {
     "правый берег",
     "район",
     "аудан",
+    "уркер",
+    "жибек жолы",
   ];
   if (!data.location && locations.some((x) => t.includes(x))) {
     data.location = text;
@@ -436,36 +497,81 @@ async function tryConstructionAIReply({ text, session, lang }) {
 }
 
 function getConstructionNextPrompt(data = {}, lang = "ru") {
-  if (!data.intent) {
+  const missing = getMissingConstructionField(data);
+
+  if (missing === "intent") {
     return lang === "kz"
       ? "Қандай жұмыс қызықтырады?"
       : "Какие именно работы вас интересуют?";
   }
-  if (!data.location) {
+  if (missing === "location") {
     return lang === "kz"
       ? "Учаске қай жерде орналасқан?"
       : "В каком районе или где находится участок?";
   }
-  if (!data.size && !data.plot) {
+  if (missing === "size") {
     return lang === "kz"
       ? "Шамамен көлемі немесе ауданы қандай?"
       : "Какая примерно площадь или размер объекта?";
   }
-  if (!data.timing) {
+  if (missing === "timing") {
     return lang === "kz"
       ? "Құрылысты қашан бастауды жоспарлап отырсыз?"
       : "Когда планируете начинать строительство?";
   }
-  if (!data.name) {
+  if (missing === "name") {
     return lang === "kz"
       ? "Өзіңізді қалай атаймыз?"
       : "Как я могу к вам обращаться?";
   }
-  if (!data.phone) {
+  if (missing === "phone") {
     return lang === "kz"
       ? "Телефон нөміріңізді қалдырыңыз."
       : "Оставьте, пожалуйста, номер телефона.";
   }
+
+  return "";
+}
+
+function getConstructionPromptByMissing(data = {}, lang = "ru") {
+  const missing = getMissingConstructionField(data);
+
+  if (missing === "intent") {
+    return lang === "kz"
+      ? "Қандай жұмыс қызықтырады?\nМысалы: үй, коттедж, іргетас немесе кеңес."
+      : "Какие именно работы вас интересуют?\nНапример: дом, коттедж, фундамент или консультация.";
+  }
+
+  if (missing === "location") {
+    return lang === "kz"
+      ? "Учаске қай жерде орналасқан?"
+      : "В каком районе или где находится участок?";
+  }
+
+  if (missing === "size") {
+    return lang === "kz"
+      ? "Шамамен көлемін жазыңыз. Мысалы: 120 м² немесе 10 соток."
+      : "Напишите примерный размер. Например: 120 м² или участок 10 соток.";
+  }
+
+  if (missing === "timing") {
+    return lang === "kz"
+      ? "Құрылысты қашан бастауды жоспарлап отырсыз?"
+      : "Когда планируете начинать строительство?";
+  }
+
+  if (missing === "name") {
+    return lang === "kz"
+      ? "Жақсы 👍\n\nНақты есепті бекіту үшін өз атыңызды жазыңыз."
+      : "Хорошо 👍\n\nЧтобы зафиксировать расчёт, подскажите ваше имя.";
+  }
+
+  if (missing === "phone") {
+    return lang === "kz"
+      ? "Жақсы 👍\n\nНақты есеп пен ұсыныс дайындау үшін менеджер сізбен байланысуы керек.\nТелефон нөміріңізді жазыңыз."
+      : "Хорошо 👍\n\nЧтобы дать точный расчёт и не ошибиться по объекту, менеджер должен связаться с вами.\nОставьте, пожалуйста, номер телефона.";
+  }
+
   return "";
 }
 
@@ -840,7 +946,12 @@ function parseClinicInfo(text = "", currentData = {}, lang = "ru") {
       "өкемен",
       "усть-каменогорск",
     ];
-    if (cityHints.some((c) => t.includes(c)) || t.includes("из города") || t.includes("с города") || t.includes("қаладан")) {
+    if (
+      cityHints.some((c) => t.includes(c)) ||
+      t.includes("из города") ||
+      t.includes("с города") ||
+      t.includes("қаладан")
+    ) {
       data.city = text;
       data.location = text;
     }
@@ -859,6 +970,13 @@ function parseClinicInfo(text = "", currentData = {}, lang = "ru") {
     data.intent = "training";
   }
 
+  if (
+    !data.photoStatus &&
+    (t.includes("без фото") || t.includes("фото жоқ"))
+  ) {
+    data.photoStatus = lang === "kz" ? "Фото жоқ" : "Без фото";
+  }
+
   const smart = parseSmartDateTime(text, lang);
   if (!data.visitDay && smart.hasDate) {
     data.visitDay = smart.date.value;
@@ -873,46 +991,44 @@ function parseClinicInfo(text = "", currentData = {}, lang = "ru") {
 }
 
 function getClinicNextPrompt(data = {}, lang = "ru") {
-  if (!data.city) {
+  const missing = getMissingClinicField(data);
+
+  if (missing === "city") {
     return lang === "kz"
       ? "Қай қаладансыз?"
       : "Скажите, пожалуйста, из какого вы города?";
   }
-  if (!data.service) {
+
+  if (missing === "service") {
     return lang === "kz"
       ? "Қай процедура қызықтырады?"
       : "Какая процедура вас интересует?";
   }
-  if (data.intent === "training" && !data.name) {
-    return lang === "kz"
-      ? "Өзіңізді қалай атаймыз?"
-      : "Подскажите, пожалуйста, как я могу к вам обращаться?";
-  }
-  if (data.intent === "training" && !data.phone) {
-    return lang === "kz"
-      ? "Телефон нөміріңізді жазыңызшы."
-      : "Напишите, пожалуйста, номер телефона.";
-  }
-  if (!data.visitDay) {
+
+  if (missing === "visitDay") {
     return lang === "kz"
       ? "Қай күн ыңғайлы?"
       : "На какой день вам удобно?";
   }
-  if (!data.visitTime) {
+
+  if (missing === "visitTime") {
     return lang === "kz"
       ? "Қай уақыт ыңғайлы?"
       : "Какое время вам удобно?";
   }
-  if (!data.name) {
+
+  if (missing === "name") {
     return lang === "kz"
       ? "Өзіңізді қалай атаймыз?"
       : "Как я могу к вам обращаться?";
   }
-  if (!data.phone) {
+
+  if (missing === "phone") {
     return lang === "kz"
       ? "Телефон нөміріңізді жазыңызшы."
       : "Напишите, пожалуйста, номер телефона.";
   }
+
   return "";
 }
 
@@ -951,6 +1067,32 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       language: "ru",
       data: currentData,
     });
+  }
+
+  // AUTO FINAL
+  if (!currentData.phone && looksLikePhone(text)) {
+    const data = mergeData(currentData, { phone: onlyDigits(text) });
+
+    if ((data.city && data.service) || (data.name && data.service)) {
+      const day = data.visitDay || "Не указано";
+      const time = data.visitTime || data.preferredTime || "Не указано";
+      const city = data.city || data.location || "Не указано";
+      const service = data.service || data.projectDetails || "Не указано";
+
+      const finalReply =
+        lang === "kz"
+          ? `Рақмет 🌿\n\nСізді алдын ала консультацияға жаздым:\n• Қала: ${city}\n• Процедура: ${service}\n• Күні: ${day}\n• Уақыты: ${time}\n\nМіне біздің локация:\n${mapUrl}\n\nАдминистратор жақын арада растау үшін хабарласады.`
+          : `Спасибо 🌿\n\nПредварительно записала вас на консультацию:\n• Город: ${city}\n• Услуга: ${service}\n• Дата: ${day}\n• Время: ${time}\n\nВот наша локация:\n${mapUrl}\n\nАдминистратор свяжется с вами в ближайшее время для подтверждения записи.`;
+
+      return buildResult({
+        project: "clinic",
+        reply: finalReply,
+        nextStep: "completed",
+        mode: "support",
+        language: lang,
+        data,
+      });
+    }
   }
 
   if (
@@ -1086,9 +1228,15 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   if (clinicShouldUseAI(text, session)) {
     const aiReply = await tryClinicAIReply({ text, session, lang });
     if (aiReply) {
+      const next = getClinicNextPrompt(currentData, lang);
+      const close =
+        lang === "kz"
+          ? "\n\nЖазылу үшін нөмір қалдыра аласыз, администратор нақты уақытты бекітеді."
+          : "\n\nЧтобы записаться, можете оставить номер — администратор закрепит точное время.";
+
       return buildResult({
         project: "clinic",
-        reply: `${aiReply}\n\n${getClinicNextPrompt(currentData, lang)}`,
+        reply: `${aiReply}\n\n${next}${close}`,
         nextStep: session?.step || "ask_service",
         mode: "scenario",
         language: lang,
@@ -1401,10 +1549,12 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     });
   }
 
+  const nextPrompt = getClinicNextPrompt(currentData, lang) || getClinicGreeting(lang);
+
   return buildResult({
     project: "clinic",
-    reply: getClinicGreeting(lang),
-    nextStep: "ask_city",
+    reply: nextPrompt,
+    nextStep: session?.step || "ask_city",
     mode: "scenario",
     language: lang,
     data: currentData,
@@ -1433,6 +1583,27 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     });
   }
 
+  // Обход приветствия/кнопок таргета
+  if ((!session?.language || session?.step === "start") && isConstructionAdEntry(text)) {
+    const detected = detectLanguage(text, projectConfig) || lang || "ru";
+    const data = mergeData(currentData, {
+      intent: currentData.intent || detectIntent(text, projectConfig),
+      projectDetails: currentData.projectDetails || text,
+    });
+
+    return buildResult({
+      project: "construction",
+      reply:
+        detected === "kz"
+          ? "Жақсы 👍\n\nЕнді локацияны жазыңыз: учаске қай жерде?"
+          : "Хорошо 👍\n\nТеперь уточните локацию: в каком районе или где находится участок?",
+      nextStep: "ask_location",
+      mode: "scenario",
+      language: detected,
+      data,
+    });
+  }
+
   if (!session?.language) {
     const detected = detectLanguage(text, projectConfig);
 
@@ -1444,6 +1615,21 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
         mode: "scenario",
         language: null,
         data: currentData,
+      });
+    }
+
+    // Если текст уже осмысленный, не шлём повторно приветствие
+    if (containsUsefulConstructionData(text) || isGreeting(text) || isMuslimGreeting(text)) {
+      const data = currentData;
+      const prompt = getConstructionPromptByMissing(data, detected);
+
+      return buildResult({
+        project: "construction",
+        reply: prompt || getConstructionOfficialGreeting(detected),
+        nextStep: prompt ? "qualification" : "qualification",
+        mode: "scenario",
+        language: detected,
+        data,
       });
     }
 
@@ -1468,6 +1654,39 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     });
   }
 
+  // AUTO FINAL
+  if (!currentData.phone && looksLikePhone(text)) {
+    const data = mergeData(currentData, {
+      phone: onlyDigits(text),
+    });
+
+    return buildResult({
+      project: "construction",
+      reply:
+        lang === "kz"
+          ? "Керемет 👍\n\nМенеджерге жібердім, сізбен жақын арада байланысады."
+          : "Отлично 👍\n\nПередал менеджеру, с вами свяжутся в ближайшее время.",
+      nextStep: "completed",
+      mode: "support",
+      language: lang,
+      data,
+    });
+  }
+
+  if (signalCount >= 3 && !currentData.name && session?.step !== "ask_name" && session?.step !== "ask_phone") {
+    return buildResult({
+      project: "construction",
+      reply:
+        lang === "kz"
+          ? "Жақсы 👍\n\nЕсепті нақтылау үшін өз атыңызды жазыңыз."
+          : "Хорошо 👍\n\nЧтобы зафиксировать расчёт, подскажите ваше имя.",
+      nextStep: "ask_name",
+      mode: "scenario",
+      language: lang,
+      data: currentData,
+    });
+  }
+
   if (isAngry(text)) {
     return buildResult({
       project: "construction",
@@ -1486,8 +1705,6 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     t.includes("какие районы") ||
     t.includes("по какому району") ||
     t.includes("район") ||
-    t.includes("астана") ||
-    t.includes("косшы") ||
     t.includes("пригород")
   ) {
     return buildResult({
@@ -1542,7 +1759,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
           ? `Міне біздің Instagram:\n${insta}\n\nҚаласаңыз, осы жерден-ақ жобаңызды қысқаша жаза аласыз.`
           : `Вот наш Instagram:\n${insta}\n\nЕсли хотите, здесь же можете кратко написать по вашему объекту.`,
       nextStep: session?.step || "qualification",
-      mode: session?.mode || "scenario",
+      mode: "scenario",
       language: lang,
       data: currentData,
     });
@@ -1573,9 +1790,15 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
   if (shouldUseConstructionAI(text, session)) {
     const aiReply = await tryConstructionAIReply({ text, session, lang });
     if (aiReply) {
+      const next = getConstructionNextPrompt(currentData, lang);
+      const close =
+        lang === "kz"
+          ? "\n\nЕгер ыңғайлы болса, нөмір қалдырыңыз — менеджер нақты есептеп береді."
+          : "\n\nЕсли удобно, оставьте номер — менеджер рассчитает точно под ваш участок.";
+
       return buildResult({
         project: "construction",
-        reply: `${aiReply}\n\n${getConstructionNextPrompt(currentData, lang)}`,
+        reply: `${aiReply}\n\n${next}${close}`,
         nextStep: session?.step || "qualification",
         mode: "scenario",
         language: lang,
@@ -1589,27 +1812,17 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     session?.step === "qualification" ||
     session?.step === "start"
   ) {
-    if (signalCount >= 3) {
-      return buildResult({
-        project: "construction",
-        reply:
-          lang === "kz"
-            ? "Жақсы, негізгі мәлімет жеткілікті 👍\n\nӨзіңізді қалай атаймыз?"
-            : "Хорошо, основной информации уже достаточно 👍\n\nПодскажите, как я могу к вам обращаться?",
-        nextStep: "ask_name",
-        mode: "scenario",
-        language: lang,
-        data: currentData,
-      });
-    }
+    const prompt = getConstructionPromptByMissing(currentData, lang);
 
     return buildResult({
       project: "construction",
-      reply:
-        lang === "kz"
-          ? "Қандай жұмыс қызықтырады?\nМысалы: үй, коттедж, іргетас немесе кеңес."
-          : "Какие именно работы вас интересуют?\nНапример: дом, коттедж, фундамент или консультация.",
-      nextStep: "ask_project",
+      reply: prompt,
+      nextStep:
+        prompt === getConstructionPromptByMissing(currentData, lang) && !currentData.intent
+          ? "ask_project"
+          : session?.step === "start"
+          ? "qualification"
+          : session?.step || "qualification",
       mode: "scenario",
       language: lang,
       data: currentData,
@@ -1622,27 +1835,24 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       projectDetails: currentData.projectDetails || text,
     });
 
-    if (countConstructionSignals(data) >= 3) {
-      return buildResult({
-        project: "construction",
-        reply:
-          lang === "kz"
-            ? "Жақсы 👍\n\nНегізгі мәліметті түсіндім. Енді өз атыңызды жазыңыз."
-            : "Хорошо 👍\n\nОсновную картину уже понял. Теперь подскажите, как к вам можно обращаться.",
-        nextStep: "ask_name",
-        mode: "scenario",
-        language: lang,
-        data,
-      });
-    }
+    const nextPrompt = getConstructionPromptByMissing(data, lang);
+    const missing = getMissingConstructionField(data);
 
     return buildResult({
       project: "construction",
-      reply:
-        lang === "kz"
-          ? "Енді локацияны жазыңыз: учаске қай жерде?"
-          : "Теперь уточните локацию: в каком районе или где находится участок?",
-      nextStep: "ask_location",
+      reply: nextPrompt,
+      nextStep:
+        missing === "location"
+          ? "ask_location"
+          : missing === "size"
+          ? "ask_size"
+          : missing === "timing"
+          ? "ask_timing"
+          : missing === "name"
+          ? "ask_name"
+          : missing === "phone"
+          ? "ask_phone"
+          : "completed",
       mode: "scenario",
       language: lang,
       data,
@@ -1654,27 +1864,22 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       location: currentData.location || text,
     });
 
-    if (data.size || data.plot) {
-      return buildResult({
-        project: "construction",
-        reply:
-          lang === "kz"
-            ? "Құрылысты қашан бастауды жоспарлап отырсыз?"
-            : "Когда планируете начинать строительство?",
-        nextStep: "ask_timing",
-        mode: "scenario",
-        language: lang,
-        data,
-      });
-    }
+    const nextPrompt = getConstructionPromptByMissing(data, lang);
+    const missing = getMissingConstructionField(data);
 
     return buildResult({
       project: "construction",
-      reply:
-        lang === "kz"
-          ? "Шамамен көлемін жазыңыз. Мысалы: 120 м² немесе 10 соток."
-          : "Напишите примерный размер. Например: 120 м² или участок 10 соток.",
-      nextStep: "ask_size",
+      reply: nextPrompt,
+      nextStep:
+        missing === "size"
+          ? "ask_size"
+          : missing === "timing"
+          ? "ask_timing"
+          : missing === "name"
+          ? "ask_name"
+          : missing === "phone"
+          ? "ask_phone"
+          : "completed",
       mode: "scenario",
       language: lang,
       data,
@@ -1683,14 +1888,20 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
 
   if (session?.step === "ask_size") {
     const parsed = parseConstructionInfo(text, currentData);
+    const nextPrompt = getConstructionPromptByMissing(parsed, lang);
+    const missing = getMissingConstructionField(parsed);
 
     return buildResult({
       project: "construction",
-      reply:
-        lang === "kz"
-          ? "Құрылысты қашан бастауды жоспарлап отырсыз?"
-          : "Когда планируете начинать строительство?",
-      nextStep: "ask_timing",
+      reply: nextPrompt,
+      nextStep:
+        missing === "timing"
+          ? "ask_timing"
+          : missing === "name"
+          ? "ask_name"
+          : missing === "phone"
+          ? "ask_phone"
+          : "completed",
       mode: "scenario",
       language: lang,
       data: parsed,
@@ -1706,8 +1917,8 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       project: "construction",
       reply:
         lang === "kz"
-          ? "Өзіңізді қалай атаймыз?"
-          : "Как я могу к вам обращаться?",
+          ? "Жақсы 👍\n\nЕнді өз атыңызды жазыңыз."
+          : "Хорошо 👍\n\nТеперь подскажите, как к вам можно обращаться.",
       nextStep: "ask_name",
       mode: "scenario",
       language: lang,
@@ -1724,8 +1935,8 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       project: "construction",
       reply:
         lang === "kz"
-          ? "Телефон нөміріңізді қалдырыңыз. Менеджер сізбен байланысып, нақты консультация береді."
-          : "Оставьте, пожалуйста, номер телефона. Менеджер свяжется с вами и даст точную консультацию.",
+          ? "Жақсы 👍\n\nНақты есеп пен ұсыныс дайындау үшін менеджер сізбен байланысуы керек.\nТелефон нөміріңізді жазыңыз."
+          : "Хорошо 👍\n\nЧтобы дать точный расчёт и не ошибиться по объекту, менеджер должен связаться с вами.\nОставьте, пожалуйста, номер телефона.",
       nextStep: "ask_phone",
       mode: "scenario",
       language: lang,
@@ -1762,8 +1973,8 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
 
   return buildResult({
     project: "construction",
-    reply: getConstructionOfficialGreeting(lang),
-    nextStep: "qualification",
+    reply: getConstructionPromptByMissing(currentData, lang) || getConstructionOfficialGreeting(lang),
+    nextStep: session?.step || "qualification",
     mode: "scenario",
     language: lang,
     data: currentData,
