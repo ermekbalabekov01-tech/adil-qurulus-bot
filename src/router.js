@@ -142,7 +142,10 @@ function isReject(text = "") {
     t.includes("не интересно") ||
     t.includes("отстань") ||
     t.includes("перестань") ||
-    t.includes("жесть")
+    t.includes("жесть") ||
+    t.includes("позовите человека") ||
+    t.includes("человека") ||
+    t.includes("не хочу с ботом")
   );
 }
 
@@ -239,12 +242,12 @@ function getMissingConstructionField(data = {}) {
 }
 
 function getMissingClinicField(data = {}) {
-  if (!data.city) return "city";
   if (!data.service && data.intent !== "training") return "service";
+  if (!data.city) return "city";
   if (data.intent === "training" && !data.name) return "name";
   if (data.intent === "training" && !data.phone) return "phone";
-  if (!data.visitDay) return "visitDay";
-  if (!data.visitTime) return "visitTime";
+  if (!data.visitDay && data.intent !== "training") return "visitDay";
+  if (!data.visitTime && data.intent !== "training") return "visitTime";
   if (!data.name) return "name";
   if (!data.phone) return "phone";
   return null;
@@ -262,8 +265,8 @@ function getConstructionOfficialGreeting(lang = "ru") {
       "Біз Астана және жақын аймақтарда үй, коттедж және іргетас құрылысы бойынша бағыт береміз.\n\n" +
       "Жылдам нақтылау үшін жазыңыз:\n" +
       "1️⃣ Қандай жұмыс қызықтырады?\n" +
-      "2️⃣ Дайын жоба бар ма, әлде әзірге нұсқаларды қарап жүрсіз бе?\n\n" +
-      "Қаласаңыз, бірден учаскенің орналасқан жері мен шамамен көлемін жаза аласыз."
+      "2️⃣ Дайын жоба бар ма?\n\n" +
+      "Қаласаңыз, бірден локация мен шамамен көлемін жаза аласыз."
     );
   }
 
@@ -273,7 +276,7 @@ function getConstructionOfficialGreeting(lang = "ru") {
     "Мы занимаемся строительством домов, коттеджей и фундаментных работ в Астане и области.\n\n" +
     "Чтобы сразу сориентировать вас по стоимости и срокам, уточните, пожалуйста:\n" +
     "1️⃣ Какие работы вас интересуют?\n" +
-    "2️⃣ Есть ли у вас готовый проект или пока рассматриваете варианты?\n\n" +
+    "2️⃣ Есть ли у вас готовый проект?\n\n" +
     "Также можете сразу написать район участка и примерную площадь — это ускорит расчёт."
   );
 }
@@ -503,6 +506,7 @@ async function tryConstructionAIReply({ text, session, lang }) {
           "Ты спокойный и уверенный менеджер строительной компании Adil Qurulus. " +
           "Твоя задача — не уводить в долгий разговор, а мягко вести клиента к заявке. " +
           "Отвечай коротко, по делу, максимум 2-3 абзаца. " +
+          "Если клиент раздражён или просит человека, переводи к имени и номеру. " +
           "После ответа мягко переводи клиента к следующему шагу: локация, площадь, сроки, имя, телефон.",
       },
     });
@@ -602,16 +606,18 @@ function getClinicGreeting(lang = "ru") {
     return (
       "Сәлеметсіз бе 🌸\n\n" +
       "Мен Алия, Dr.Aitimbetova клиникасының ассистентімін.\n" +
-      "Процедура бойынша бағыт беріп, консультацияға жазылуға көмектесемін.\n\n" +
-      "Қай қаладансыз?"
+      "Сізді бағыттап, консультацияға жазылуға көмектесемін.\n\n" +
+      "Қайсысы қызықтырады?\n" +
+      "1️⃣ Шаш\n2️⃣ Сақал\n3️⃣ Қас\n4️⃣ Кірпік\n5️⃣ Консультация\n6️⃣ Оқу"
     );
   }
 
   return (
     "Здравствуйте 🌸\n\n" +
     "Я Алия, ассистент клиники Dr.Aitimbetova.\n" +
-    "Помогу сориентироваться по процедурам, обучению и записать вас на консультацию.\n\n" +
-    "Скажите, пожалуйста, из какого вы города?"
+    "Помогу сориентироваться и записать вас.\n\n" +
+    "Что вас интересует?\n" +
+    "1️⃣ Волосы\n2️⃣ Борода\n3️⃣ Брови\n4️⃣ Ресницы\n5️⃣ Консультация\n6️⃣ Обучение"
   );
 }
 
@@ -977,12 +983,12 @@ function parseClinicInfo(text = "", currentData = {}, lang = "ru") {
   }
 
   if (!data.service) {
-    if (t.includes("волос") || t.includes("шаш")) data.service = "Пересадка волос";
-    if (t.includes("бород") || t.includes("сақал")) data.service = "Пересадка бороды";
-    if (t.includes("бров") || t.includes("қас")) data.service = "Пересадка бровей";
-    if (t.includes("ресниц") || t.includes("кірпік")) data.service = "Пересадка ресниц";
-    if (t.includes("консультац") || t.includes("кеңес")) data.service = "Консультация";
-    if (isTrainingIntent(text, data)) data.service = "Обучение";
+    if (t === "1" || t.includes("волос") || t.includes("шаш")) data.service = "Пересадка волос";
+    if (t === "2" || t.includes("бород") || t.includes("сақал")) data.service = "Пересадка бороды";
+    if (t === "3" || t.includes("бров") || t.includes("қас")) data.service = "Пересадка бровей";
+    if (t === "4" || t.includes("ресниц") || t.includes("кірпік")) data.service = "Пересадка ресниц";
+    if (t === "5" || t.includes("консультац") || t.includes("кеңес")) data.service = "Консультация";
+    if (t === "6" || isTrainingIntent(text, data)) data.service = "Обучение";
   }
 
   if (!data.intent && isTrainingIntent(text, data)) {
@@ -1012,16 +1018,16 @@ function parseClinicInfo(text = "", currentData = {}, lang = "ru") {
 function getClinicNextPrompt(data = {}, lang = "ru") {
   const missing = getMissingClinicField(data);
 
+  if (missing === "service") {
+    return lang === "kz"
+      ? "Қайсысы қызықтырады?\n1️⃣ Шаш\n2️⃣ Сақал\n3️⃣ Қас\n4️⃣ Кірпік\n5️⃣ Консультация\n6️⃣ Оқу"
+      : "Что вас интересует?\n1️⃣ Волосы\n2️⃣ Борода\n3️⃣ Брови\n4️⃣ Ресницы\n5️⃣ Консультация\n6️⃣ Обучение";
+  }
+
   if (missing === "city") {
     return lang === "kz"
       ? "Қай қаладансыз?"
-      : "Скажите, пожалуйста, из какого вы города?";
-  }
-
-  if (missing === "service") {
-    return lang === "kz"
-      ? "Қай процедура қызықтырады?"
-      : "Какая процедура вас интересует?";
+      : "Из какого вы города?";
   }
 
   if (missing === "visitDay") {
@@ -1056,7 +1062,6 @@ function getClinicNextPrompt(data = {}, lang = "ru") {
 ========================= */
 
 async function routeClinicMessage({ text, session, projectConfig, lang }) {
-  const prompts = projectConfig.prompts[lang] || projectConfig.prompts.ru;
   const currentData = parseClinicInfo(text, session?.data || {}, lang);
   const t = normalizeText(text);
   const mapUrl = process.env.CLINIC_2GIS_URL || "https://2gis.kz/";
@@ -1067,7 +1072,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     return buildResult({
       project: "clinic",
       reply: getClinicGreeting(switchedLang),
-      nextStep: "ask_city",
+      nextStep: "ask_service",
       mode: session?.mode || "scenario",
       language: switchedLang,
       data: currentData,
@@ -1081,7 +1086,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     return buildResult({
       project: "clinic",
       reply: getClinicGreeting("ru"),
-      nextStep: "ask_city",
+      nextStep: "ask_service",
       mode: "scenario",
       language: "ru",
       data: currentData,
@@ -1095,7 +1100,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         lang === "kz"
           ? "Түсіндім 🌿\n\nОнда қысқаша: атыңыз бен нөміріңізді қалдырыңыз, администратор өзі хабарласып бәрін түсіндіреді."
           : "Поняла 🌿\n\nТогда проще: оставьте имя и номер, администратор сам свяжется и всё спокойно объяснит.",
-      nextStep: currentData.name ? "ask_phone" : "ask_name_age",
+      nextStep: currentData.name ? "ask_phone" : "ask_name",
       mode: "scenario",
       language: lang,
       data: currentData,
@@ -1141,9 +1146,9 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       project: "clinic",
       reply:
         lang === "kz"
-          ? `Біз Астанада орналасқанбыз 🌿\n\nМіне нақты локация:\n${mapUrl}\n\nҚаласаңыз, ыңғайлы күн мен уақытты бірден қарайық.`
+          ? `Біз Астанада орналасқанбыз 🌿\n\nМіне нақты локация:\n${mapUrl}\n\nҚаласаңыз, бірден ыңғайлы күн мен уақытты қарайық.`
           : `Мы находимся в Астане 🌿\n\nВот наша точная локация:\n${mapUrl}\n\nЕсли хотите, я сразу помогу подобрать удобный день и время.`,
-      nextStep: session?.step || "ask_city",
+      nextStep: session?.step || "ask_service",
       mode: session?.mode || "scenario",
       language: lang,
       data: currentData,
@@ -1163,7 +1168,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         lang === "kz"
           ? `Әрине 🌿\n\nМіне біздің Instagram:\n${instagramUrl}\n\nҚаласаңыз, осы жерден-ақ консультацияға жазып қоямын.`
           : `Конечно 🌿\n\nВот наш Instagram:\n${instagramUrl}\n\nЕсли хотите, здесь же помогу записаться на консультацию.`,
-      nextStep: session?.step || "ask_city",
+      nextStep: session?.step || "ask_service",
       mode: session?.mode || "scenario",
       language: lang,
       data: currentData,
@@ -1187,7 +1192,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     return buildResult({
       project: "clinic",
       reply: getClinicGreeting(detected),
-      nextStep: "ask_city",
+      nextStep: "ask_service",
       mode: "scenario",
       language: detected,
       data: currentData,
@@ -1281,23 +1286,40 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     return buildResult({
       project: "clinic",
       reply: getClinicGreeting(lang),
-      nextStep: "ask_city",
+      nextStep: "ask_service",
       mode: "scenario",
       language: lang,
       data: currentData,
     });
   }
 
-  if (session?.step === "start" || session?.step === "ask_city") {
-    const data = currentData.city
+  if (session?.step === "start" || session?.step === "ask_service") {
+    const data = currentData.service
       ? currentData
-      : mergeData(currentData, { city: text, location: text });
+      : mergeData(currentData, { service: currentData.service || text });
 
-    if (data.city) {
+    if (data.service) {
+      if (data.service === "Обучение" || data.intent === "training") {
+        return buildResult({
+          project: "clinic",
+          reply:
+            lang === "kz"
+              ? "Жақсы 🌿\n\nОқу бойынша толық ақпаратты администратор береді.\nҚай қаладансыз?"
+              : "Поняла 🌿\n\nПо обучению администратор подробно всё подскажет.\nИз какого вы города?",
+          nextStep: "ask_city",
+          mode: "scenario",
+          language: lang,
+          data: mergeData(data, { intent: "training", leadType: "training" }),
+        });
+      }
+
       return buildResult({
         project: "clinic",
-        reply: prompts.askLocation,
-        nextStep: "ask_service",
+        reply:
+          lang === "kz"
+            ? `Жақсы 🌸\n\n${data.service} бойынша бағыт беремін.\nҚай қаладансыз?`
+            : `Отлично 🌸\n\nПо направлению "${data.service}" сориентирую вас.\nИз какого вы города?`,
+        nextStep: "ask_city",
         mode: "scenario",
         language: lang,
         data,
@@ -1307,33 +1329,29 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
     return buildResult({
       project: "clinic",
       reply: getClinicGreeting(lang),
-      nextStep: "ask_city",
+      nextStep: "ask_service",
       mode: "scenario",
       language: lang,
       data: currentData,
     });
   }
 
-  if (session?.step === "ask_service") {
-    const intent = detectIntent(text, projectConfig) || currentData.intent;
-    const training = isTrainingIntent(text, { ...currentData, intent });
-    const data = mergeData(currentData, {
-      intent,
-      service: currentData.service || text,
-      projectDetails: currentData.projectDetails || text,
-    });
+  if (session?.step === "ask_city") {
+    const data = currentData.city
+      ? currentData
+      : mergeData(currentData, { city: text, location: text });
 
-    if (training) {
+    if (data.intent === "training") {
       return buildResult({
         project: "clinic",
         reply:
           lang === "kz"
-            ? "Түсіндім 🌿\n\nОқу бойынша толық ақпаратты администратор береді.\nӨзіңізді қалай атаймыз?"
-            : "Поняла 🌿\n\nПо обучению администратор подробно всё подскажет.\nПодскажите, пожалуйста, как я могу к вам обращаться?",
+            ? "Өзіңізді қалай атаймыз?"
+            : "Подскажите, пожалуйста, как я могу к вам обращаться?",
         nextStep: "training_name",
         mode: "scenario",
         language: lang,
-        data: mergeData(data, { leadType: "training", intent: "training" }),
+        data,
       });
     }
 
@@ -1341,8 +1359,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       project: "clinic",
       reply:
         lang === "kz"
-          ? `Жақсы 🌸\n\n${data.service} бойынша дәрігер консультацияда нақтырақ бағыт береді.\n\nКонсультация шамамен 20 минут алады.\n\nҚай күн ыңғайлы?`
-          : `Отлично 🌸\n\nПо направлению "${data.service}" врач сможет точнее сориентировать вас на консультации.\n\nКонсультация занимает около 20 минут.\n\nНа какой день вам удобно?`,
+          ? "Қай күн ыңғайлы?"
+          : "На какой день вам удобно?",
       nextStep: "ask_day",
       mode: "scenario",
       language: lang,
@@ -1359,8 +1377,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       project: "clinic",
       reply:
         lang === "kz"
-          ? "Рақмет 🌸\n\nЕнді телефон нөміріңізді жазыңызшы. Администратор оқу бойынша хабарласады."
-          : "Спасибо 🌸\n\nТеперь напишите, пожалуйста, ваш номер телефона. Администратор свяжется с вами по обучению.",
+          ? "Енді телефон нөміріңізді жазыңызшы. Администратор оқу бойынша хабарласады."
+          : "Теперь напишите, пожалуйста, номер телефона. Администратор свяжется с вами по обучению.",
       nextStep: "training_phone",
       mode: "scenario",
       language: lang,
@@ -1387,8 +1405,8 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
       project: "clinic",
       reply:
         lang === "kz"
-          ? "Рақмет 🌿\n\nОқу бойынша сұранысыңызды администраторға жібердім.\nСізбен бағдарлама, формат, бағасы және жақын күндер туралы нақтылау үшін хабарласады."
-          : "Спасибо 🌿\n\nЯ передала ваш запрос по обучению администратору.\nС вами свяжутся для уточнения программы, формата, стоимости и ближайших дат.",
+          ? "Рақмет 🌿\n\nОқу бойынша сұранысыңызды администраторға жібердім. Жақын арада хабарласады."
+          : "Спасибо 🌿\n\nЯ передала ваш запрос по обучению администратору. С вами свяжутся в ближайшее время.",
       nextStep: "completed",
       mode: "support",
       language: lang,
@@ -1450,7 +1468,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
           lang === "kz"
             ? "Өте жақсы 🌿\n\nУақытты қойып қойдым.\nЕнді өз атыңызды жазыңыз."
             : "Отлично 🌿\n\nВремя зафиксировала.\nТеперь подскажите, как к вам обращаться.",
-        nextStep: "ask_name_age",
+        nextStep: "ask_name",
         mode: "scenario",
         language: lang,
         data,
@@ -1518,15 +1536,15 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
         lang === "kz"
           ? "Өте жақсы 🌿\n\nУақытты қойып қойдым.\nЕнді өз атыңызды жазыңыз."
           : "Отлично 🌿\n\nВремя зафиксировала.\nТеперь подскажите, как к вам обращаться.",
-      nextStep: "ask_name_age",
+      nextStep: "ask_name",
       mode: "scenario",
       language: lang,
       data,
     });
   }
 
-  if (session?.step === "ask_name_age") {
-    const data = mergeData(currentData, { name: text });
+  if (session?.step === "ask_name") {
+    const data = mergeData(currentData, { name: extractName(text) || text });
 
     return buildResult({
       project: "clinic",
@@ -1586,7 +1604,7 @@ async function routeClinicMessage({ text, session, projectConfig, lang }) {
   return buildResult({
     project: "clinic",
     reply: nextPrompt,
-    nextStep: session?.step || "ask_city",
+    nextStep: session?.step || "ask_service",
     mode: "scenario",
     language: lang,
     data: currentData,
@@ -1649,8 +1667,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
     }
 
     if (containsUsefulConstructionData(text) || isGreeting(text) || isMuslimGreeting(text)) {
-      const data = currentData;
-      const prompt = getConstructionPromptByMissing(data, detected);
+      const prompt = getConstructionPromptByMissing(currentData, detected);
 
       return buildResult({
         project: "construction",
@@ -1658,7 +1675,7 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
         nextStep: "qualification",
         mode: "scenario",
         language: detected,
-        data,
+        data: currentData,
       });
     }
 
@@ -1702,14 +1719,28 @@ async function routeConstructionMessage({ text, session, projectConfig, lang }) 
       phone: onlyDigits(text),
     });
 
+    if (!getMissingConstructionField({ ...data, name: data.name || "ok" })) {
+      return buildResult({
+        project: "construction",
+        reply:
+          lang === "kz"
+            ? "Керемет 👍\n\nМенеджерге жібердім, сізбен жақын арада байланысады."
+            : "Отлично 👍\n\nПередал менеджеру, с вами свяжутся в ближайшее время.",
+        nextStep: "completed",
+        mode: "support",
+        language: lang,
+        data,
+      });
+    }
+
     return buildResult({
       project: "construction",
       reply:
         lang === "kz"
-          ? "Керемет 👍\n\nМенеджерге жібердім, сізбен жақын арада байланысады."
-          : "Отлично 👍\n\nПередал менеджеру, с вами свяжутся в ближайшее время.",
-      nextStep: "completed",
-      mode: "support",
+          ? "Нөміріңізді сақтап қойдым 👍\n\nЕнді нақты есеп үшін қалған екі нәрсені жазайық."
+          : "Номер сохранил 👍\n\nТеперь давайте доберём пару деталей для точного расчёта.",
+      nextStep: session?.step || "qualification",
+      mode: "scenario",
       language: lang,
       data,
     });
