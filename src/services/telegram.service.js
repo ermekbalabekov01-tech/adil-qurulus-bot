@@ -1,13 +1,19 @@
 const axios = require("axios");
 
+/* ================= HELPERS ================= */
+
 function normalizePhone(phone = "") {
   return String(phone || "").replace(/\D/g, "");
 }
 
 function buildWhatsAppLink(phone = "") {
   const clean = normalizePhone(phone);
-  if (!clean) return "";
-  return `https://wa.me/${clean}`;
+  return clean ? `https://wa.me/${clean}` : "";
+}
+
+function buildCallLink(phone = "") {
+  const clean = normalizePhone(phone);
+  return clean ? `tel:+${clean}` : "";
 }
 
 function escapeHtml(value = "") {
@@ -17,112 +23,100 @@ function escapeHtml(value = "") {
     .replace(/>/g, "&gt;");
 }
 
-function buildDirectionLabel(direction = "") {
-  const value = String(direction || "").toLowerCase();
+/* ================= SEND ================= */
 
-  if (value.includes("foundation")) return "Фундамент";
-  if (value.includes("house")) return "Дом";
-  if (value.includes("cottage")) return "Коттедж";
-  if (value.includes("consultation")) return "Консультация";
+async function sendTelegramMessage({ text, phone }) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
 
-  return direction || "Не указано";
-}
-
-function buildConstructionTelegramHtml(lead = {}) {
-  const isFinal = lead.telegramType === "final";
-  const phone = lead.phone || lead.whatsapp || "Не указано";
-  const waLink = buildWhatsAppLink(phone);
-
-  const title = isFinal
-    ? "🏗️ <b>Новая заявка — Adil Qurulus</b>"
-    : "🔥 <b>Новый вход — Adil Qurulus</b>";
-
-  const phoneLine =
-    phone && phone !== "Не указано"
-      ? `<a href="${waLink}">📲 ${escapeHtml(phone)}</a>`
-      : "Не указано";
-
-  const lines = [
-    title,
-    "",
-    `👤 <b>Имя:</b> ${escapeHtml(lead.name || "Не указано")}`,
-    `☎️ <b>Телефон:</b> ${phoneLine}`,
-    `💬 <b>WhatsApp:</b> ${escapeHtml(lead.whatsapp || "Не указано")}`,
-    `📁 <b>Направление:</b> ${escapeHtml(buildDirectionLabel(lead.direction))}`,
-    `📍 <b>Локация:</b> ${escapeHtml(lead.location || "Не указано")}`,
-    `📐 <b>Размер:</b> ${escapeHtml(lead.size || "Не указано")}`,
-  ];
-
-  if (lead.plot && lead.plot !== "Не указано") {
-    lines.push(`🧱 <b>Участок:</b> ${escapeHtml(lead.plot)}`);
+  if (!token || !chatId) {
+    console.log("⚠️ Telegram not configured");
+    return false;
   }
 
-  if (lead.timing && lead.timing !== "Не указано") {
-    lines.push(`⏳ <b>Сроки:</b> ${escapeHtml(lead.timing)}`);
-  }
+  const wa = buildWhatsAppLink(phone);
+  const call = buildCallLink(phone);
 
-  if (!isFinal && lead.firstMessage) {
-    lines.push(`🗨️ <b>Первое сообщение:</b> ${escapeHtml(lead.firstMessage)}`);
-  }
+  const buttons = [];
 
-  if (lead.projectDetails && lead.projectDetails !== "Не указано") {
-    lines.push(`📝 <b>Комментарий:</b> ${escapeHtml(lead.projectDetails)}`);
-  }
+  if (wa) buttons.push({ text: "💬 WhatsApp", url: wa });
+  if (call) buttons.push({ text: "📞 Позвонить", url: call });
 
-  lines.push("");
-  lines.push(
-    isFinal
-      ? "✅ <b>Лид зафиксирован ботом</b>"
-      : "👀 <b>Новый вход, желательно быстро подхватить</b>"
-  );
-
-  return lines.join("\n");
-}
-
-async function sendTelegramLead(lead = {}) {
   try {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-
-    if (!token || !chatId) {
-      console.log("⚠️ Construction Telegram not configured");
-      return false;
-    }
-
-    const html = buildConstructionTelegramHtml(lead);
-    const waLink = buildWhatsAppLink(lead.phone || lead.whatsapp);
-
-    const inline_keyboard = waLink
-      ? [
-          [
-            {
-              text: "👉 Написать в WhatsApp",
-              url: waLink,
-            },
-          ],
-        ]
-      : undefined;
-
     await axios.post(
       `https://api.telegram.org/bot${token}/sendMessage`,
       {
         chat_id: chatId,
-        text: html,
+        text,
         parse_mode: "HTML",
-        disable_web_page_preview: true,
-        reply_markup: inline_keyboard ? { inline_keyboard } : undefined,
-      },
-      { timeout: 30000 }
+        reply_markup: buttons.length ? { inline_keyboard: [buttons] } : undefined,
+      }
     );
 
-    console.log("✅ Construction Telegram lead sent");
     return true;
-  } catch (error) {
-    console.error("❌ Telegram error:", error.response?.data || error.message);
+  } catch (e) {
+    console.log("❌ TG ERROR:", e.response?.data || e.message);
     return false;
   }
 }
 
+/* ================= TYPES ================= */
+
+// 🔥 1. НОВЫЙ ВХОД
+async function sendTelegramNewLead({ firstMessage, phone }) {
+  return sendTelegramMessage({
+    phone,
+    text: `
+🔥 <b>Новый вход — Adil Qurulus</b>
+
+📩 <b>Сообщение:</b>
+${escapeHtml(firstMessage)}
+
+📱 ${escapeHtml(phone || "Не указано")}
+`,
+  });
+}
+
+// 💬 2. ПЕРЕПИСКА
+async function sendTelegramConversation({ clientText, botText, phone }) {
+  return sendTelegramMessage({
+    phone,
+    text: `
+💬 <b>Переписка</b>
+
+👤 <b>Клиент:</b>
+${escapeHtml(clientText)}
+
+🤖 <b>Бот:</b>
+${escapeHtml(botText)}
+
+📱 ${escapeHtml(phone || "—")}
+`,
+  });
+}
+
+// ✅ 3. ФИНАЛ
+async function sendTelegramLead(lead = {}) {
+  return sendTelegramMessage({
+    phone: lead.phone,
+    text: `
+🏗️ <b>Новая заявка — Adil Qurulus</b>
+
+👤 <b>Имя:</b> ${escapeHtml(lead.name)}
+☎️ <b>Телефон:</b> ${escapeHtml(lead.phone)}
+📍 <b>Локация:</b> ${escapeHtml(lead.location)}
+📐 <b>Размер:</b> ${escapeHtml(lead.size)}
+⏳ <b>Сроки:</b> ${escapeHtml(lead.timing)}
+📁 <b>Тип:</b> ${escapeHtml(lead.direction)}
+
+📝 <b>Комментарий:</b>
+${escapeHtml(lead.projectDetails)}
+`,
+  });
+}
+
 module.exports = {
   sendTelegramLead,
+  sendTelegramNewLead,
+  sendTelegramConversation,
 };
